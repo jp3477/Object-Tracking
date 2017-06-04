@@ -128,9 +128,11 @@ def create_state_functions(dt, period):
   def state_function(state):
     theta = state[0]
     omega = state[1]
-    theta_new = (theta + omega * dt) % (2 * np.pi)
-    if theta + omega * dt < 0:
-      theta_new *= -1
+    theta_new = theta + omega * dt
+
+    # if theta + omega * dt < 0:
+    #   theta_new *= -1
+
     omega_new = omega + (-1 * (2 * np.pi / period) ** 2) * dt * theta
     # print (-1 * (2 * np.pi / period) ** 2) * dt * theta * 180 / np.pi
 
@@ -164,20 +166,24 @@ t_max = 100
 dt = 0.15
 
 
-P0 = np.eye(2) * 0.4
+P0 = np.eye(2) * 0.5
 
-Q = np.eye(2) * 0.4
-R = np.eye(2) * 0.4
+# Q = np.eye(2) * 25
+Q = np.array([
+  [100,  0],
+  [0,   100]
+])
+R = np.eye(2) * 20
 
 u = np.array([[0, 0]])
 B = np.eye(2)
 
 turners = [
-  Turner(np.pi, 5, phi=0, dt=0.15),
-  Turner(np.pi, 5, phi=0, dt=0.15),
-  Turner(np.pi, 5, phi=0, dt=0.15),
+  Turner(2 * np.pi, 10, phi=0, dt=0.15),
+  Turner(2 * np.pi, 10, phi=np.pi/2, dt=0.15),
+  Turner(2 * np.pi, 10, phi=np.pi, dt=0.15),
 ]
-L = [15, 20, 35]
+L = [35, 35, 35]
 turner_points = np.zeros((2, t_max, 3))
 turner_threads = []
 strikes = [0, 0, 0]
@@ -217,7 +223,6 @@ for i in range(1, t_max):
   #row_ind corresponds to estimations and col_ind refers to observations
   row_indices, col_indices = linear_sum_assignment(cost_matrix)
 
-
   for j in range(len(row_indices)):
     if row_indices[j] != col_indices[j]:
       if strikes[col_indices[j]] < 5:
@@ -229,6 +234,7 @@ for i in range(1, t_max):
         soln = turner_threads[thread_index].update(z)
 
         strikes[thread_index] += 1
+        print strikes
       else:
         pass
     else:        
@@ -254,15 +260,42 @@ for i in range(1, t_max):
 # plt.plot(range(t_max), turner_threads[2].x[0, :], 'go')
 # plt.plot(range(t_max), turner_angles[2], 'g--')
  
-plt.plot(turner_threads[0].z[0, ::5], turner_threads[0].z[1, ::5], 'bo')
-plt.plot(turner_threads[1].z[0, ::5], turner_threads[1].z[1, ::5], 'ro')
-plt.plot(turner_threads[2].z[0, ::5], turner_threads[2].z[1, ::5], 'go')
+# plt.plot(turner_threads[0].z[0, ::2], turner_threads[0].z[1, ::2], 'ko')
+# plt.plot(turner_threads[1].z[0, ::5], turner_threads[1].z[1, ::5], 'ro')
+# plt.plot(turner_threads[2].z[0, ::5], turner_threads[2].z[1, ::5], 'go')
 
 
-# plt.plot(turner_points[0, ::5, 0], turner_points[1, ::5, 0], 'bo' )
-# plt.plot(turner_points[0, ::5, 1], turner_points[1, ::5, 1], 'ro' )
-# plt.plot(turner_points[0, ::5, 2], turner_points[1, ::5, 2], 'go' )
-plt.show()
+
+# plt.plot(turner_points[0, ::1, 0], turner_points[1, ::1, 0], 'bo', markersize=10 )
+# plt.plot(turner_points[0, ::1, 1], turner_points[1, ::1, 1], 'ro', markersize=10 )
+# plt.plot(turner_points[0, ::1, 2], turner_points[1, ::1, 2], 'go', markersize=10 )
+
+# plt.plot(turner_threads[2].z[0, ::1], turner_threads[2].z[1, ::1], 'ko')
+
+
+plt.ion()
+
+for i in range(t_max):
+  plt.clf()
+  plt.xlim(-40, 40)
+  plt.ylim(-40, 40)
+  plt.title('Time: {}'.format(i))
+
+  print turner_threads[2].x[:, i]
+
+  plt.plot(turner_points[0, i, 0], turner_points[1, i, 0], 'bo', markersize=10 )
+  plt.plot(turner_points[0, i, 1], turner_points[1, i, 1], 'ro', markersize=10 )
+  plt.plot(turner_points[0, i, 2], turner_points[1, i, 2], 'go', markersize=10 )
+
+
+  plt.plot(turner_threads[0].z[0, i], turner_threads[0].z[1, i], 'ko')
+  plt.plot(turner_threads[1].z[0, i], turner_threads[1].z[1, i], 'mo')
+  plt.plot(turner_threads[2].z[0, i], turner_threads[2].z[1, i], 'yo')
+  plt.pause(0.05)
+
+# while True:
+#   plt.pause(2)
+
 
 
 

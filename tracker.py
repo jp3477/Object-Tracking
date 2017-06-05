@@ -48,12 +48,15 @@ class Turner(object):
     self.t += self.dt
     return theta, omega #+ (2 * np.pi/180) * np.random.randn()
 
-t_max = 50
+t_max = 100
 dt = 0.05
 
 P0 = np.eye(2) * 10
-Q = np.eye(2) * 200
-R = np.eye(2) * 100
+Q = np.array([
+    [0.1, 0],
+    [0, 0.1],
+  ])
+R = np.eye(2) * 0.1
 
 turners = [
   Turner(0, np.pi / 2, 4, phi=0, dt=dt),
@@ -84,15 +87,16 @@ for i in range(1, t_max):
     sensor_factory_args = [L[j]]
     state_factory_args = [dt, turner.period]
 
+    #Change value of omega to test how prediction readjusts
     observations.append({
-      "x": x,
+      "x": np.array([[theta, 5]]).T,
       "z": z,
       "sensor_factory_args": sensor_factory_args,
       "state_factory_args": state_factory_args,
     })
     turners[j] = turner
 
-  shuffle(observations)
+  # shuffle(observations)
 
   preds, labels = tracker.detect(observations)
   print labels
@@ -105,6 +109,7 @@ for i in range(1, t_max):
     x, y = observations[j]['z']
     color = colors[labels[j] - 1]
     x2, y2 = preds[j][0], preds[j][1]
+
     plt.plot(x2, y2, "ko", markersize=10, zorder=1)
     plt.plot(x, y, '{}o'.format(color), zorder=2)
 

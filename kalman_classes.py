@@ -134,10 +134,10 @@ class KalmanTracker(object):
   def detect(self, observations):
 
     #Remove a predictor if it has had too many erroneous walks
-    for i, strikes in enumerate(self.strikes):
-      if strikes > 100:
-        del self.strikes[i]
-        del self.predictors[i]
+    # for i, strikes in enumerate(self.strikes):
+    #   if strikes > 100:
+    #     del self.strikes[i]
+    #     del self.predictors[i]
 
     #update each prediction and form a cost matrix
     cost_matrix = np.zeros((len(observations), len(self.predictors)))
@@ -183,15 +183,14 @@ class KalmanTracker(object):
 
 
     #If cost of any assignment is too high, increment strikes...threshold is arbitrary 
-    for i in observation_indices:
-      for j in prediction_indices:
-        cost = cost_matrix[i, j]
-        print "i:{}\t j:{}\t cost:{}".format(i, j, cost)
+    for i, j in zip(observation_indices, prediction_indices):
+      cost = cost_matrix[i, j]
+      # print "i:{}\t j:{}\t cost:{}".format(i, j, cost)
 
-        if cost > 50:
-          self.strikes[j] += 1
-        else:
-          self.strikes[j] = 0
+      if cost > 50:
+        self.strikes[j] += 1
+      else:
+        self.strikes[j] = 0
 
     # for i, row in enumerate(cost_matrix):
     #   for j, cost in enumerate(row):

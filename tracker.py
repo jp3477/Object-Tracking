@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from kalman_classes import KalmanTracker
+from random import shuffle
+import copy
 
 def create_sensor_functions(L):
   def sensor_function(state):
@@ -46,20 +48,20 @@ class Turner(object):
     self.t += self.dt
     return theta, omega #+ (2 * np.pi/180) * np.random.randn()
 
-t_max = 100
+t_max = 50
 dt = 0.05
 
 P0 = np.eye(2) * 10
-Q = np.eye(2) * 100
-R = np.eye(2) * 2
+Q = np.eye(2) * 200
+R = np.eye(2) * 100
 
 turners = [
-  Turner(0, np.pi / 2, 1, phi=0, dt=dt),
-  Turner(np.pi / 32, np.pi / 2, 1, phi=0, dt=dt),
-  Turner(np.pi / 64, np.pi / 2, 1, phi=0, dt=dt),
+  Turner(0, np.pi / 2, 4, phi=0, dt=dt),
+  Turner(np.pi / 32, np.pi / 2, 4, phi=0, dt=dt),
+  Turner(np.pi / 64, np.pi / 2, 4, phi=0, dt=dt),
 ]
 
-L = [24, 35, 35]
+L = [35, 35, 35]
 
 tracker = KalmanTracker(
   P0, Q, R,
@@ -70,15 +72,15 @@ tracker = KalmanTracker(
 colors = ['r', 'b', 'g', 'c', 'k']
 
 plt.ion()
-for i in range(t_max):
+for i in range(1, t_max):
 
   observations = []
   for j, turner in enumerate(turners):
     theta, omega = turner.turn()
     #x  should be a column
     x = np.array([[theta, omega]]).T
-    z = np.array([[L[j] * np.cos(theta) + 1 * np.random.randn(), L[j] * np.sin(theta) + 1 * np.random.randn()]]).T
-    # z = np.array([[L[j] * np.cos(theta), L[j] * np.sin(theta)]]).T
+    # z = np.array([[L[j] * np.cos(theta) + 1 * np.random.randn(), L[j] * np.sin(theta) + 1 * np.random.randn()]]).T
+    z = np.array([[L[j] * np.cos(theta), L[j] * np.sin(theta)]]).T
     sensor_factory_args = [L[j]]
     state_factory_args = [dt, turner.period]
 
@@ -88,9 +90,11 @@ for i in range(t_max):
       "sensor_factory_args": sensor_factory_args,
       "state_factory_args": state_factory_args,
     })
+    turners[j] = turner
 
+  shuffle(observations)
 
-  labels = tracker.detect(observations)
+  preds, labels = tracker.detect(observations)
   print labels
 
   plt.clf()
@@ -100,7 +104,10 @@ for i in range(t_max):
   for j in range(len(labels)):
     x, y = observations[j]['z']
     color = colors[labels[j] - 1]
-    plt.plot(x, y, '{}o'.format(color))
+    x2, y2 = preds[j][0], preds[j][1]
+    plt.plot(x2, y2, "ko", markersize=10, zorder=1)
+    plt.plot(x, y, '{}o'.format(color), zorder=2)
+
 
 
 

@@ -9,15 +9,15 @@ class ExtendedKalmanThread(object):
   """
   def __init__(self, t, x0, f, F, h, H, P0=0, Q=0, R=0):
     """
-      t: timesteps
+      t: timesteps to intialize
       x0: column of initial state values
       P0: initial covariance matrix of estimation process
       Q: covariance matrix of process noise
       R: covariances matrix of sensors
+      f: state function
+      F: Jacobian of state function
       h: sensor function
       H: Jacobian of sensor function
-      u: control function
-      B: scale of control function
     """
 
 
@@ -78,11 +78,12 @@ class ExtendedKalmanThread(object):
             ) + R
           )
         )
-    
+
+
     assert z.shape == h_res.shape
 
     x_new = x_new + np.dot(G, z - h_res)
-
+# 
     P_new = np.dot(np.eye(x_new.size) - np.dot(G, H_res), P_new)
     soln = h_res
     detP = np.linalg.det(P_new)
@@ -112,6 +113,10 @@ class ExtendedKalmanThread(object):
 
 
 class KalmanTracker(object):
+  """
+    Uses Kalman Filters and assignments with a Hungarian algorithm to keep track
+    of observed objects
+  """
   def __init__(self, P0, Q, R, state_factory, sensor_factory):
     self.predictors = [] #List of KalmanThreads
     self.current_predictor_label = 1
@@ -127,14 +132,6 @@ class KalmanTracker(object):
 
   def detect(self, observations):
 
-    # observations_dict:
-    # {
-    #   "x": np.array[[46, 34]]
-    #   "z": np.array[[43]]
-    #   "sensor_factory_args": {"L": 67}
-    #   "state_factory_args": {"dt": 4, "period": 4}
-    # }
-
     #Remove a predictor if it has had too many erroneous walks
     for i, strikes in enumerate(self.strikes):
       if strikes > 5:
@@ -149,12 +146,12 @@ class KalmanTracker(object):
       for j, predictor in enumerate(self.predictors):
         z = observation_dict['z']
         _, _, detP, prediction = predictor['predictor'].update_preview(z)
-        # cost_matrix[i, j] = np.linalg.norm(prediction - z)
-        cost_matrix[i, j] = detP
+        cost_matrix[i, j] = np.linalg.norm(prediction - z)
+
 
 
     observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
-
+    preds = []
     for i in range(len(observation_indices)):
       observation_index = observation_indices[i]
       prediction_index = prediction_indices[i]
@@ -162,7 +159,7 @@ class KalmanTracker(object):
       observation_dict = observations[observation_index]
       z = observation_dict['z']
 
-      self.predictors[prediction_index]['predictor'].update(z)
+      preds.append(self.predictors[prediction_index]['predictor'].update(z))
 
 
 
@@ -180,16 +177,27 @@ class KalmanTracker(object):
           observation_dict["sensor_factory_args"],
         )
 
-    #If cost of assignment is too high, increment strikes 
-    for i, row in enumerate(cost_matrix):
-      for j, cost in enumerate(row):
+    #If cost of any assignment is too high, increment strikes...threshold is arbitrary 
+    for i in observation_indices:
+      for j in prediction_indices:
+        cost = cost_matrix[i, j]
+        # print "i:{}\t j:{}\t cost:{}".format(i, j, cost)
+
         if cost > 50:
           self.strikes[j] += 1
+        else:
+          self.strikes[j] = 0
+
+    # for i, row in enumerate(cost_matrix):
+    #   for j, cost in enumerate(row):
+    #     if cost > 150:
+    #       self.strikes[j] += 1
 
     # Return the label (numerical) of each assignment
     labels = [self.predictors[i]['label'] for i in prediction_indices]
+    preds = [preds[i] for i in prediction_indices]
 
-    return labels
+    return preds, labels
 
   def addPredictor(self, t, x0, state_factory_args=[], sensor_factory_args=[]):
     f, F = self.state_factory(*state_factory_args)
@@ -215,50 +223,6 @@ class KalmanTracker(object):
 
 
 
-
-def create_sensor_functions(L):
-  def sensor_function(state):
-    theta = state[0][0]
-    return np.array([[L * np.cos(theta), L * np.sin(theta)]]).T
-  def sensor_function_jacobian(state):
-    theta = state[0][0]
-    return np.array([
-      [-L * np.sin(theta), 0],
-      [L * np.cos(theta), 0],
-    ])
-
-  return sensor_function, sensor_function_jacobian
-
-def create_state_functions(dt, period):
-  def state_function(state):
-    theta = state[0]
-    omega = state[1]
-    theta_new = theta + omega * dt
-
-
-    omega_new = omega + (-1 * (2 * np.pi / period) ** 2) * dt * theta
-
-    return np.array([[theta_new, omega_new]]).T
-  def state_function_jacobian(state):
-    A = np.array([
-      [1,       dt], 
-      [(-1 * (2 * np.pi / period) ** 2) * dt, 1 ],
-    ])
-    return A
-
-  return state_function, state_function_jacobian
-
-
-P0 = np.eye(2) * 0.5
-Q = np.eye(2) * 5
-R = np.eye(2) * 10
-
-tracker = KalmanTracker(
-  P0, Q, R,
-  create_state_functions,
-  create_sensor_functions,
-)
-
     # observations_dict:
     # {
     #   "x": np.array[[46, 34]]
@@ -273,7 +237,7 @@ tracker = KalmanTracker(
 #   "sensor_factory_args" : [15],
 #   "state_factory_args": [0.15, 25],
 # }]
-# print tracker.detect(observation)
+# tracker.detect(observation)
 # print tracker.detect(observation)
 # print tracker.detect(observation)
 

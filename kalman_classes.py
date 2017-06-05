@@ -7,7 +7,7 @@ class ExtendedKalmanThread(object):
     An implemention of the Kalman algorithm
     An estimation is a juxtaposed with an observation at each time step
   """
-  def __init__(self, t, x0, f, F, h, H, P0=None, Q=0, R=0):
+  def __init__(self, t, x0, f, F, h, H, P0=0, Q=0, R=0):
     """
       t: timesteps
       x0: column of initial state values
@@ -20,11 +20,8 @@ class ExtendedKalmanThread(object):
       B: scale of control function
     """
 
-    if P0 == None:
-      P0 = np.eye(x0.shape[0])
 
-
-    self.Q, self.R, self.f, self.F, self.h, self.H,  =  Q, R, f, F, h, H
+    self.P0, self.Q, self.R, self.f, self.F, self.h, self.H,  = P0, Q, R, f, F, h, H
     #x0 should be a column with size number of states
     assert x0.shape == (2, 1)
     assert h(x0).shape == (2, 1)
@@ -151,8 +148,9 @@ class KalmanTracker(object):
     for i, observation_dict in enumerate(observations):
       for j, predictor in enumerate(self.predictors):
         z = observation_dict['z']
-        _, _, _, prediction = predictor['predictor'].update_preview(z)
-        cost_matrix[i, j] = np.linalg.norm(prediction - z)
+        _, _, detP, prediction = predictor['predictor'].update_preview(z)
+        # cost_matrix[i, j] = np.linalg.norm(prediction - z)
+        cost_matrix[i, j] = detP
 
 
     observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
@@ -269,15 +267,15 @@ tracker = KalmanTracker(
     #   "state_factory_args": {"dt": 4, "period": 4}
     # }
 
-observation = [{
-  "x" : np.array([[np.pi, np.pi / 2 ]]).T,
-  "z" : np.array([[55, 66]]).T,
-  "sensor_factory_args" : [15],
-  "state_factory_args": [0.15, 25],
-}]
-print tracker.detect(observation)
-print tracker.detect(observation)
-print tracker.detect(observation)
+# observation = [{
+#   "x" : np.array([[np.pi, np.pi / 2 ]]).T,
+#   "z" : np.array([[55, 66]]).T,
+#   "sensor_factory_args" : [15],
+#   "state_factory_args": [0.15, 25],
+# }]
+# print tracker.detect(observation)
+# print tracker.detect(observation)
+# print tracker.detect(observation)
 
 
 

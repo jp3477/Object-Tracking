@@ -152,7 +152,7 @@ class KalmanTracker(object):
 
 
     observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
-    preds = []
+    # preds = []
     for i in range(len(observation_indices)):
       observation_index = observation_indices[i]
       prediction_index = prediction_indices[i]
@@ -160,10 +160,10 @@ class KalmanTracker(object):
       observation_dict = observations[observation_index]
       z = observation_dict['z']
 
-      preds.append(self.predictors[prediction_index]['predictor'].update(z))
+      # preds.append(self.predictors[prediction_index]['predictor'].update(z))
 
 
-    preds = [preds[i] for i in prediction_indices]
+    # preds = [preds[i] for i in prediction_indices]
 
 
     # Prepare to add new observation if number exceeds predictions
@@ -186,7 +186,7 @@ class KalmanTracker(object):
     for i in observation_indices:
       for j in prediction_indices:
         cost = cost_matrix[i, j]
-        # print "i:{}\t j:{}\t cost:{}".format(i, j, cost)
+        print "i:{}\t j:{}\t cost:{}".format(i, j, cost)
 
         if cost > 50:
           self.strikes[j] += 1
@@ -202,7 +202,7 @@ class KalmanTracker(object):
     labels = [self.predictors[i]['label'] for i in prediction_indices]
 
     
-    return preds, labels
+    return labels
 
   def addPredictor(self, t, x0, state_factory_args=[], sensor_factory_args=[]):
     f, F = self.state_factory(*state_factory_args)

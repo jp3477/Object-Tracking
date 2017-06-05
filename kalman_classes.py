@@ -96,6 +96,7 @@ class ExtendedKalmanThread(object):
       z: current observation values
     """
     x, P, detP, soln = self.update_preview(z)
+    # print x[1]
     self.x[:, self.k] = x.T
     self.P.append(P)
     self.detP.append(detP)
@@ -134,7 +135,7 @@ class KalmanTracker(object):
 
     #Remove a predictor if it has had too many erroneous walks
     for i, strikes in enumerate(self.strikes):
-      if strikes > 5:
+      if strikes > 100:
         del self.strikes[i]
         del self.predictors[i]
 
@@ -162,6 +163,8 @@ class KalmanTracker(object):
       preds.append(self.predictors[prediction_index]['predictor'].update(z))
 
 
+    preds = [preds[i] for i in prediction_indices]
+
 
     # Prepare to add new observation if number exceeds predictions
     if len(observations) > len(self.predictors):
@@ -176,6 +179,8 @@ class KalmanTracker(object):
           observation_dict["state_factory_args"],
           observation_dict["sensor_factory_args"],
         )
+        prediction_indices = np.append(prediction_indices, i)
+
 
     #If cost of any assignment is too high, increment strikes...threshold is arbitrary 
     for i in observation_indices:
@@ -195,8 +200,8 @@ class KalmanTracker(object):
 
     # Return the label (numerical) of each assignment
     labels = [self.predictors[i]['label'] for i in prediction_indices]
-    preds = [preds[i] for i in prediction_indices]
 
+    
     return preds, labels
 
   def addPredictor(self, t, x0, state_factory_args=[], sensor_factory_args=[]):
@@ -223,24 +228,13 @@ class KalmanTracker(object):
 
 
 
-    # observations_dict:
-    # {
-    #   "x": np.array[[46, 34]]
-    #   "z": np.array[[43]]
-    #   "sensor_factory_args": {"L": 67}
-    #   "state_factory_args": {"dt": 4, "period": 4}
-    # }
-
-# observation = [{
-#   "x" : np.array([[np.pi, np.pi / 2 ]]).T,
-#   "z" : np.array([[55, 66]]).T,
-#   "sensor_factory_args" : [15],
-#   "state_factory_args": [0.15, 25],
-# }]
-# tracker.detect(observation)
-# print tracker.detect(observation)
-# print tracker.detect(observation)
-
+# observations_dict:
+# {
+#   "x": np.array[[46, 34]]
+#   "z": np.array[[43]]
+#   "sensor_factory_args": {"L": 67}
+#   "state_factory_args": {"dt": 4, "period": 4}
+# }
 
 
 

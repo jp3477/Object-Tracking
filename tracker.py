@@ -105,7 +105,7 @@ for i in range(1, t_max):
   plt.xlim(-40, 40)
   plt.ylim(-40, 40)
   plt.title('Time: {}'.format(i))
-  for j in range(len(labels)):
+  for j in range(len(preds)):
     x, y = observations[j]['z']
     color = colors[labels[j] - 1]
     x2, y2 = preds[j][0], preds[j][1]

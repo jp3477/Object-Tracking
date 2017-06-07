@@ -23,14 +23,14 @@ class ExtendedKalmanThread(object):
 
     self.P0, self.Q, self.R, self.f, self.F, self.h, self.H,  = P0, Q, R, f, F, h, H
     #x0 should be a column with size number of states
-    assert x0.shape == (2, 1)
-    assert h(x0).shape == (2, 1)
-    assert P0.shape == (2, 2)
-    assert Q.shape == (2, 2)
-    assert R.shape == (2, 2)
+    # assert x0.shape == (2, 1)
+    # assert h(x0).shape == (2, 1)
+    # assert P0.shape == (2, 2)
+    # assert Q.shape == (2, 2)
+    # assert R.shape == (2, 2)
 
     nstates = x0.size
-    assert nstates == 2
+    # assert nstates == 2
     nsensors = R.shape[0]
 
     self.x = np.zeros((nstates, t))
@@ -56,18 +56,18 @@ class ExtendedKalmanThread(object):
 
     #Prediction Step
     x_new = f(self.x[:, k-1])
-    assert x_new.shape == (2, 1)
+    # assert x_new.shape == (2, 1)
     F_res = F(self.x[:, k-1])
-    assert(F_res).shape == (2, 2)
+    # assert(F_res).shape == (2, 2)
     P_new = np.dot(np.dot(F_res, self.P[k-1]), F_res.T) + Q
-    assert(P_new).shape == (2, 2)
+    # assert(P_new).shape == (2, 2)
 
 
     #Update Step
     H_res = H(x_new)
     h_res = h(x_new)
-    assert(H_res).shape == (2, 2)
-    assert(h_res).shape == (2, 1)
+    # assert(H_res).shape == (2, 2)
+    # assert(h_res).shape == (2, 1)
 
     G = np.dot(
           np.dot(P_new, H_res.T),
@@ -80,7 +80,7 @@ class ExtendedKalmanThread(object):
         )
 
 
-    assert z.shape == h_res.shape
+    # assert z.shape == h_res.shape
 
     x_new = x_new + np.dot(G, z - h_res)
 # 
@@ -133,11 +133,13 @@ class KalmanTracker(object):
 
 
   def detect(self, observations):
+    # print [predictor['label'] for predictor in self.predictors]
     #Remove a predictor if it has had too many erroneous walks
     # for i, strikes in enumerate(self.strikes):
-    #   if strikes > 100:
+    #   if strikes > 5:
     #     del self.strikes[i]
     #     del self.predictors[i]
+    #     self.current_predictor_label -= 1
 
     #update each prediction and form a cost matrix
 
@@ -155,7 +157,6 @@ class KalmanTracker(object):
 
         _, _, detP, prediction = self.predictors[j]['predictor'].update_preview(z)
         cost_matrix[i, j] = np.linalg.norm(prediction - z)
-
 
     observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
 

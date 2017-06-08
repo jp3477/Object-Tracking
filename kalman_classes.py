@@ -33,15 +33,20 @@ class ExtendedKalmanThread(object):
     # assert nstates == 2
     nsensors = R.shape[0]
 
-    self.x = np.zeros((nstates, t))
-    self.x[:, 0] = x0.T
+    # self.x = np.zeros((nstates, t))
+    # self.x[:, 0] = x0.T
 
 
-    self.P = [P0]
-    self.detP = [np.linalg.det(P0)]
+    # self.P = [P0]
+    # self.detP = [np.linalg.det(P0)]
 
-    self.z = np.zeros((nsensors, t))
-    self.z[:, 0] = h(x0).T
+    # self.z = np.zeros((nsensors, t))
+    # self.z[:, 0] = h(x0).T
+
+    self.x = x0
+    self.P = P0
+    self.detP = np.linalg.det(P0)
+    self.z = h(x0)
 
 
 
@@ -55,11 +60,13 @@ class ExtendedKalmanThread(object):
     x, P, Q, h, H, R, k, f, F = self.x, self.P, self.Q, self.h, self.H, self.R, self.k, self.f, self.F
 
     #Prediction Step
-    x_new = f(self.x[:, k-1])
+    # x_new = f(self.x[:, k-1])
+    x_new = f(x)
     # assert x_new.shape == (2, 1)
-    F_res = F(self.x[:, k-1])
+    # F_res = F(self.x[:, k-1])
+    F_res = F(x)
     # assert(F_res).shape == (2, 2)
-    P_new = np.dot(np.dot(F_res, self.P[k-1]), F_res.T) + Q
+    P_new = np.dot(np.dot(F_res, self.P), F_res.T) + Q
     # assert(P_new).shape == (2, 2)
 
 
@@ -97,10 +104,14 @@ class ExtendedKalmanThread(object):
     """
     x, P, detP, soln = self.update_preview(z)
     # print x[1]
-    self.x[:, self.k] = x.T
-    self.P.append(P)
-    self.detP.append(detP)
-    self.z[:, self.k] = soln.T
+    # self.x[:, self.k] = x.T
+    # self.P.append(P)
+    # self.detP.append(detP)
+    # self.z[:, self.k] = soln.T
+    self.x = x
+    self.P = P
+    self.detP = detP
+    self.z = soln
     self.k += 1
 
 

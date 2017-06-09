@@ -1,258 +1,267 @@
-#Implementation of the kalman filter
-
-# function s = kalmanf(s)
-# s.x = s.A*s.x + s.B*s.u;
-# s.P = s.A * s.P * s.A' + s.Q;
-# % Compute Kalman gain factor:
-# K = s.P * s.H' * inv(s.H * s.P * s.H' + s.R);
-# % Correction based on observation:
-# s.x = s.x + K*(s.z - s.H *s.x);
-# s.P = s.P - K*s.H*s.P;
-# end
-# return
-
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.optimize import linear_sum_assignment
 
-class KalmanThread(object):
+
+class ExtendedKalmanThread(object):
   """
     An implemention of the Kalman algorithm
     An estimation is a juxtaposed with an observation at each time step
   """
-  def __init__(self, t, x0, P0, Q, R, C, u, B = 0):
-    self.B, self.u, self.Q, self.C, self.R =  B, u, Q, C, R
+  def __init__(self, t, x0, f, F, h, H, P0=0, Q=0, R=0):
+    """
+      t: timesteps to intialize
+      x0: column of initial state values
+      P0: initial covariance matrix of estimation process
+      Q: covariance matrix of process noise
+      R: covariances matrix of sensors
+      f: state function
+      F: Jacobian of state function
+      h: sensor function
+      H: Jacobian of sensor function
+    """
+
+
+    self.P0, self.Q, self.R, self.f, self.F, self.h, self.H,  = P0, Q, R, f, F, h, H
+    #x0 should be a column with size number of states
+    # assert x0.shape == (2, 1)
+    # assert h(x0).shape == (2, 1)
+    # assert P0.shape == (2, 2)
+    # assert Q.shape == (2, 2)
+    # assert R.shape == (2, 2)
 
     nstates = x0.size
+    # assert nstates == 2
+    nsensors = R.shape[0]
 
-    self.x = np.zeros((nstates, t))
-    self.x[:, 0] = x0
+    # self.x = np.zeros((nstates, t))
+    # self.x[:, 0] = x0.T
 
-    # self.P = np.zeros(t)
-    # self.P[0] = P0
 
-    # self.detP = np.zeros(t)
-    # self.detP[0] = np.linalg.det(P0)
+    # self.P = [P0]
+    # self.detP = [np.linalg.det(P0)]
 
-    self.P = [P0]
-    self.detP = [np.linalg.det(P0)]
+    # self.z = np.zeros((nsensors, t))
+    # self.z[:, 0] = h(x0).T
+
+    self.x = x0
+    self.P = P0
+    self.detP = np.linalg.det(P0)
+    self.z = h(x0)
+
+
 
     self.k = 1
 
-  def update_preview(self, A, z):
-    x, B, u, P, Q, C, R, k = self.x, self.B, self.u, self.P, self.Q, self.C, self.R, self.k
-    #Prediction
-    #print np.dot(self.B, self.u[:, k])
-    # print u[:, k-1]
-    
-    x_new = np.dot(A, self.x[:, k-1]) + np.dot(B, u)
-    P_new = np.dot(np.dot(A, self.P[k-1]), A.T) + Q
+  def update_preview(self, z):
+    """
+      Provides a snapshot of one timestep of the algorithm
+      z: current observation values    
+    """
+    x, P, Q, h, H, R, k, f, F = self.x, self.P, self.Q, self.h, self.H, self.R, self.k, self.f, self.F
 
-    #Update
+    #Prediction Step
+    # x_new = f(self.x[:, k-1])
+    x_new = f(x)
+    # assert x_new.shape == (2, 1)
+    # F_res = F(self.x[:, k-1])
+    F_res = F(x)
+    # assert(F_res).shape == (2, 2)
+    P_new = np.dot(np.dot(F_res, self.P), F_res.T) + Q
+    # assert(P_new).shape == (2, 2)
+
+
+    #Update Step
+    H_res = H(x_new)
+    h_res = h(x_new)
+    # assert(H_res).shape == (2, 2)
+    # assert(h_res).shape == (2, 1)
 
     G = np.dot(
-          np.dot(P_new, C.T),
+          np.dot(P_new, H_res.T),
           np.linalg.pinv(
             np.dot(
-              np.dot(C, P_new), 
-              C.T
-            ) + self.R
+              np.dot(H_res, P_new), 
+              H_res.T
+            ) + R
           )
         )
 
-    x_new = x_new + np.dot(G, z - np.dot(C, x_new))
-    P_new = np.dot(np.eye(x_new.size) - np.dot(G, C), P_new)
-    soln = np.dot(C, x_new) + Q
+
+    # assert z.shape == h_res.shape
+
+    x_new = x_new + np.dot(G, z - h_res)
+# 
+    P_new = np.dot(np.eye(x_new.size) - np.dot(G, H_res), P_new)
+    soln = h_res
     detP = np.linalg.det(P_new)
 
     return x_new, P_new, detP, soln
 
-  def update(self, A, z):
-    x, P, detP, soln = self.update_preview(A, z)
-    self.x[:, self.k] = x
-    self.P.append(P)
-    self.detP.append(detP)
+  def update(self, z):
+    """
+      Runs one time step of the algorithm
+      z: current observation values
+    """
+    x, P, detP, soln = self.update_preview(z)
+    # print x[1]
+    # self.x[:, self.k] = x.T
+    # self.P.append(P)
+    # self.detP.append(detP)
+    # self.z[:, self.k] = soln.T
+    self.x = x
+    self.P = P
+    self.detP = detP
+    self.z = soln
     self.k += 1
+
 
     return soln
 
-class Turner(object):
-  """ Class to test Kalman ability to distinguish objects """
-  def __init__(self, theta_max, period, phi=0, t = 0, dt = 0.15 ):
-    self.theta_max, self.period, self.phi, self.t, self.dt  = theta_max, period, phi, t, dt
-
-  def turn(self):
-    theta = self.theta_max * np.sin((2 * np.pi * self.t / self.period) + self.phi)
-    self.t += self.dt
-    return theta
+  def set_state_functions(self, f, F):
+    """
+      Sets state-defining functions
+      setter: Two item tuple with the state function and its Jacobian
+    """
+    self.f, self.F = f, F
 
 
-t_max = 100
-dt = 0.15
+class KalmanTracker(object):
+  """
+    Uses Kalman Filters and assignments with a Hungarian algorithm to keep track
+    of observed objects
+  """
+  def __init__(self, P0, Q, R, state_factory, sensor_factory):
+    self.predictors = [] #List of KalmanThreads
+    self.current_predictor_label = 1
+    # {'label': 1, 'predictor': KalmanThread}
+    self.strikes = []
 
-P0 = np.eye(2) * 0.2
+    self.P0, self.Q, self.R = P0, Q, R
+    self.state_factory = state_factory
+    self.sensor_factory = sensor_factory
 
-Q = np.eye(2) * 0.2
-R = np.eye(1) * 0.2
+    self.k = 0
 
-C = np.array([[1, 0]])
-u = np.array([0, 0])
-B = np.eye(2)
 
-turners = [
-  Turner(np.pi, 10, phi=0, dt=0.15),
-  Turner(np.pi, 5, phi= np.pi/2, dt=0.15),
-  Turner(np.pi, 2.5, phi=np.pi, dt=0.15),
-]
-turner_angles = [[],[],[]]
-turner_threads = []
-strikes = [0, 0, 0]
+  def detect(self, observations):
+    # print [predictor['label'] for predictor in self.predictors]
+    #Remove a predictor if it has had too many erroneous walks
+    # for i, strikes in enumerate(self.strikes):
+    #   if strikes > 5:
+    #     del self.strikes[i]
+    #     del self.predictors[i]
+    #     self.current_predictor_label -= 1
 
-for j, turner in enumerate(turners):
-  theta0 = turner.theta_max * np.sin(turner.phi)
-  omega0 = (2 * np.pi * turner.theta_max / turner.period) * np.cos(turner.phi)
-  x0 = np.array([theta0, omega0])
+    #update each prediction and form a cost matrix
 
-  k = KalmanThread(t_max, x0, P0, Q, R, C, u, B=0)
-  turner_threads.append(k)
 
-  for i in range(t_max):
-    turner_angles[j].append(turner.turn())
+    cost_matrix = np.zeros((len(observations), len(self.predictors)))
 
-  turners[j] = turner
-    
+    #rows of cost matrix represent observations, columns represent predictions
+    for i, observation_dict in enumerate(observations):
+      for j, predictor in enumerate(self.predictors):
+        z = observation_dict['z']
+        state_factory_args, sensor_factory_args = observation_dict["state_factory_args"], observation_dict["sensor_factory_args"]
 
-for i in range(1, t_max):
-  cost_matrix = np.zeros((len(turner_threads), len(turner_threads)))
-  for j in range(len(turners)):
-    turner = turners[j]
-    A = np.array([[1,dt], [ (-1 * (2 * np.pi / turner.period) ** 2) * dt, 1 ]])
-    z = turner_angles[j][i]
+        f, F = self.state_factory(*state_factory_args)
+        self.predictors[j]['predictor'].set_state_functions(f, F)
 
-    for k in range(len(turner_threads)):
-      thread = turner_threads[k]
-      x, P, detP, soln = thread.update_preview(A, z)
-      #Assign cost matrix based on distance between prediction and observation
-      cost_matrix[k, j] = np.linalg.norm(z - soln)
+        _, _, detP, prediction = self.predictors[j]['predictor'].update_preview(z)
+        cost_matrix[i, j] = np.linalg.norm(prediction - z)
 
-  #row_ind corresponds to estimations and col_ind refers to observations
-  row_indices, col_indices = linear_sum_assignment(cost_matrix)
+    observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
 
-  for j in range(len(row_indices)):
-    if row_indices[j] != col_indices[j]:
-      if strikes[col_indices[j]] < 5:
-        thread_index, turner_index = col_indices[j], col_indices[j]
-        turner = turners[turner_index]
-        A = np.array([[1,dt], [ (-1 * (2 * np.pi / turner.period) ** 2) * dt, 1 ]])
-        z = turner_angles[turner_index][i]
+    # preds = []
+    for i in range(len(observation_indices)):
+      observation_index = observation_indices[i]
+      prediction_index = prediction_indices[i]
 
-        soln = turner_threads[thread_index].update(A, z)
+      observation_dict = observations[observation_index]
+      z = observation_dict['z']
 
-        strikes[thread_index] += 1
+
+
+      self.predictors[prediction_index]['predictor'].update(z)
+
+
+    # preds = [preds[i] for i in prediction_indices]
+
+
+
+    # Prepare to add new observation if number exceeds predictions
+    if len(observations) > len(self.predictors):
+      mask = np.in1d(np.arange(len(observations)), observation_indices)
+
+      unused_indices = np.where(~mask)[0]
+      for i in unused_indices:  
+        observation_dict = observations[i]
+        x0 = observation_dict["x"]
+        self.addPredictor(
+          1000000, x0,
+          observation_dict["state_factory_args"],
+          observation_dict["sensor_factory_args"],
+        )
+        prediction_indices = np.append(prediction_indices, i)
+
+
+    #If cost of any assignment is too high, increment strikes...threshold is arbitrary 
+    for i, j in zip(observation_indices, prediction_indices):
+      cost = cost_matrix[i, j]
+      # print "i:{}\t j:{}\t cost:{}".format(i, j, cost)
+
+      if cost > 50:
+        self.strikes[j] += 1
       else:
-        pass
-    else:        
-      thread_index = row_indices[j]
-      turner_index = col_indices[j]
+        self.strikes[j] = 0
 
-      turner = turners[turner_index]
-      A = np.array([[1,dt], [ (-1 * (2 * np.pi / turner.period) ** 2) * dt, 1 ]])
-      z = turner_angles[turner_index][i]
+    # for i, row in enumerate(cost_matrix):
+    #   for j, cost in enumerate(row):
+    #     if cost > 150:
+    #       self.strikes[j] += 1
 
-      soln = turner_threads[thread_index].update(A, z)
-      strikes[thread_index] = 0
-      theta = x[0]
-
-      # if thread_index == 2:
-      #   print "estimated:{}\t\tobserved:{}".format(theta * 180 / np. pi, z * 180 / np.pi )
+    # Return the label (numerical) of each assignment
+    labels = [self.predictors[i]['label'] for i in prediction_indices]
 
 
+    return labels
 
-plt.plot(range(t_max), turner_threads[0].x[0, :], 'ro')
-plt.plot(range(t_max), turner_angles[0], 'r--')
+  def addPredictor(self, t, x0, state_factory_args=[], sensor_factory_args=[]):
+    f, F = self.state_factory(*state_factory_args)
+    h, H = self.sensor_factory(*sensor_factory_args)
 
-plt.plot(range(t_max), turner_threads[1].x[0, :], 'bo')
-plt.plot(range(t_max), turner_angles[1], 'b--')
+    k = ExtendedKalmanThread(
+      t,
+      x0,
+      f=f, F=F, h=h, H=H,
+      P0=self.P0, Q=self.Q, R=self.R,
+    )
 
-plt.plot(range(t_max), turner_threads[2].x[0, :], 'go')
-plt.plot(range(t_max), turner_angles[2], 'g--')
-plt.show()
+    self.predictors.append(
+      {
+        'predictor' : k,
+        'label' : self.current_predictor_label
+      }
+    )
 
+    self.strikes.append(0)
 
-
-
-
-
-# t_max = 100
-# dt = 0.15
-# period = 10
-# theta_max = np.pi
-# phi = 0
-
-# turner = Turner(theta_max, period, phi=phi, dt=dt)
-# angles = []
-# for i in range(t_max):
-#   angles.append(turner.turn())
-#   # print "{} Degrees".format(turner.turn() * 180 / (np.pi))
-
-# theta0 = 0
-# omega0 = (2 * np.pi * theta_max / period) * np.cos(phi)
-# x0 = np.array([theta0, omega0])
-# P0 = np.eye(2) * 0.4
-
-# Q = np.eye(2) * 0.4
-# R = np.eye(1) * 0.4
-
-# C = np.array([[1, 0]])
-# u = np.array([0, 0]).T
-# B = np.eye(2)
-
-
-# k = KalmanThread(t_max, x0, P0, Q, R, C, u, B)
-# data = []
-# for t in range(1, t_max):
-#   A = np.array([[1,dt], [ (-1 * (2 * np.pi / period) ** 2) * dt, 1 ]])
-#   z = angles[t]
-
-#   theta = k.update(A, z)[0][0]
-#   data.append(theta)
-
-# plt.plot(range(t), data, color='r')
-# print len(angles)
-# plt.plot(range(t+1), angles, color='b')
-# plt.show()
+    self.current_predictor_label += 1
 
 
 
 
 
-# t_max = 50
-# dt = 0.01
-# theta0, omega0 = -np.pi / 2, 2 * np.pi
-# x = np.zeros((2, t_max))
-# x[0, 0] =  theta0
-# x[1, 0] = omega0
-# T = 0.5
-# L = 80
+# observations_dict:
+# {
+#   "x": np.array[[46, 34]]
+#   "z": np.array[[43]]
+#   "sensor_factory_args": {"L": 67}
+#   "state_factory_args": {"dt": 4, "period": 4}
+# }
 
 
-# #t is a time point
-# for t in range(1, t_max):
-#   A = np.array([[1,dt], [ (-1 * (2 * np.pi / T) ** 2) * dt, 1 ]])
-#   x[:, t] = np.dot(A, x[:, t-1].T)
 
 
-# observations = np.arange(theta0, 2 * np.pi, 2 * np.pi / 360)
-# observations.apply_along_axis(np.cos, 0)
-# observations[0, :] = L * np.cos(observations[0, :])
-# observations[1, :] = L * np.sin(observations[1, :])
-
-
-# print np.random.randn(2, t_max)
-# observations = observations + np.random.randn(2, t_max)
-
-# plt.scatter(observations[0, :], observations[1, :])
-# plt.show()
 
 
 

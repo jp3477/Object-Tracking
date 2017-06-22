@@ -10,6 +10,54 @@ import my
 import numpy as np
 from kalman import *
 
+## Factories
+def create_sensor_functions(L, folx, foly):
+    """Return sensor function and its jacobian for a follicle and length"""
+    def sensor_function(state):
+        """Return prediction of tip from state"""
+        theta = state[0][0]
+        return np.array([[
+            folx - np.abs(L * np.cos(theta)), 
+            L * np.sin(theta) + foly, folx, foly]
+        ]).T
+    
+    def sensor_function_jacobian(state):
+        """Return jacobian of prediction of tip from state"""
+        theta = state[0][0]
+        return np.array([
+          [L * np.sin(theta), 0],
+          [L * np.cos(theta), 0],
+          [0, 0],
+          [0, 0],
+        ])
+
+    return sensor_function, sensor_function_jacobian
+
+def create_state_functions(dt, period):
+    """Return state function and its jacobian for a certain period"""
+    def state_function(state):
+        """Return new angle and velocity from current state and period"""
+        theta = state[0][0]
+        omega = state[1][0]
+        theta_new = theta + omega * dt
+
+
+        omega_new = omega + (-1 * (2 * np.pi / period) ** 2) * dt * theta
+        if np.abs(omega_new) > np.pi:
+            omega_new = np.pi
+
+        return np.array([[theta_new, omega_new]]).T
+
+    def state_function_jacobian(state):
+        """Return jacobian of new angle and velocity"""
+        A = np.array([
+          [1,       dt], 
+          [(-1 * (2 * np.pi / period) ** 2) * dt, 1 ],
+        ])
+        return A
+
+    return state_function, state_function_jacobian
+
 # Load the data to classify
 mwe = pandas.read_pickle(os.path.expanduser(
     '~/mnt/nas2_home/whisker/test_bed/161215_KM91/masked_whisker_ends'))

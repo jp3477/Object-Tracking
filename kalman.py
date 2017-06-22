@@ -52,70 +52,51 @@ class ExtendedKalmanThread(object):
 
     self.k = 1
 
-  def update_preview(self, z):
+  def predict(self, f, F, h):
+    x, P, Q  = self.x, self.P, self.Q
+
+    x_new = f(x)
+    F_res = F(x)
+    P_new = np.dot(np.dot(F_res, self.P), F_res.T) + Q
+
+    return h(x_new), x_new, P_new
+
+  def update(self, f, F, h, H, z):
     """
       Provides a snapshot of one timestep of the algorithm
       z: current observation values    
     """
-    x, P, Q, h, H, R, k, f, F = self.x, self.P, self.Q, self.h, self.H, self.R, self.k, self.f, self.F
+    R, k = self.R, self.k
 
-    #Prediction Step
-    # x_new = f(self.x[:, k-1])
-    x_new = f(x)
-    # assert x_new.shape == (2, 1)
-    # F_res = F(self.x[:, k-1])
-    F_res = F(x)
-    # assert(F_res).shape == (2, 2)
-    P_new = np.dot(np.dot(F_res, self.P), F_res.T) + Q
-    # assert(P_new).shape == (2, 2)
-
+    prediction, x, P = self.predict(f, F, h)
 
     #Update Step
-    H_res = H(x_new)
-    h_res = h(x_new)
-    # assert(H_res).shape == (2, 2)
-    # assert(h_res).shape == (2, 1)
+    H_res = H(x)
 
     G = np.dot(
-          np.dot(P_new, H_res.T),
+          np.dot(P, H_res.T),
           np.linalg.pinv(
             np.dot(
-              np.dot(H_res, P_new), 
+              np.dot(H_res, P), 
               H_res.T
             ) + R
           )
         )
 
 
-    # assert z.shape == h_res.shape
+    x = x + np.dot(G, z - prediction)
+ 
+    P = np.dot(np.eye(x.size) - np.dot(G, H_res), P)
+    detP = np.linalg.det(P)
 
-    x_new = x_new + np.dot(G, z - h_res)
-# 
-    P_new = np.dot(np.eye(x_new.size) - np.dot(G, H_res), P_new)
-    soln = h_res
-    detP = np.linalg.det(P_new)
-
-    return x_new, P_new, detP, soln
-
-  def update(self, z):
-    """
-      Runs one time step of the algorithm
-      z: current observation values
-    """
-    x, P, detP, soln = self.update_preview(z)
-    # print x[1]
-    # self.x[:, self.k] = x.T
-    # self.P.append(P)
-    # self.detP.append(detP)
-    # self.z[:, self.k] = soln.T
     self.x = x
     self.P = P
     self.detP = detP
-    self.z = soln
+    self.z = prediction
     self.k += 1
 
+    return x, P, detP, prediction
 
-    return soln
 
   def set_state_functions(self, f, F):
     """
@@ -164,28 +145,33 @@ class KalmanTracker(object):
         state_factory_args, sensor_factory_args = observation_dict["state_factory_args"], observation_dict["sensor_factory_args"]
 
         f, F = self.state_factory(*state_factory_args)
-        self.predictors[j]['predictor'].set_state_functions(f, F)
+        h, H = self.sensor_factory(*sensor_factory_args)
 
-        _, _, detP, prediction = self.predictors[j]['predictor'].update_preview(z)
-        cost_matrix[i, j] = np.linalg.norm(prediction - z)
+
+        prediction, _, _ = predictor['predictor'].predict(f, F, h)
+        dist = np.linalg.norm(prediction - z)
+        # print dist * detP
+        # detP_weight = -1 * np.log10(detP)
+        # print detP
+        cost_matrix[i, j] = dist
 
     observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
 
-    # preds = []
     for i in range(len(observation_indices)):
       observation_index = observation_indices[i]
       prediction_index = prediction_indices[i]
 
+      # cost = cost_matrix[observation_index, prediction_index]
+      # print cost
+      # if cost < 50:
       observation_dict = observations[observation_index]
       z = observation_dict['z']
 
-
-
-      self.predictors[prediction_index]['predictor'].update(z)
-
-
-    # preds = [preds[i] for i in prediction_indices]
-
+      state_factory_args, sensor_factory_args = observation_dict["state_factory_args"], observation_dict["sensor_factory_args"]
+      f, F = self.state_factory(*state_factory_args)
+      h, H = self.sensor_factory(*sensor_factory_args)
+      
+      self.predictors[prediction_index]['predictor'].update(f, F, h, H, z)
 
 
     # Prepare to add new observation if number exceeds predictions
@@ -214,16 +200,11 @@ class KalmanTracker(object):
       else:
         self.strikes[j] = 0
 
-    # for i, row in enumerate(cost_matrix):
-    #   for j, cost in enumerate(row):
-    #     if cost > 150:
-    #       self.strikes[j] += 1
-
     # Return the label (numerical) of each assignment
     labels = [self.predictors[i]['label'] for i in prediction_indices]
+    preds = [self.predictors[i]['predictor'].z for i in prediction_indices]
 
-
-    return labels
+    return labels, preds
 
   def addPredictor(self, t, x0, state_factory_args=[], sensor_factory_args=[]):
     f, F = self.state_factory(*state_factory_args)

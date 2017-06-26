@@ -66,8 +66,11 @@ class UnscentedKalmanTracker(object):
         for i, observation_dict in enumerate(observations):
             for j, predictor in enumerate(self.predictors):
                 z = observation_dict['z']
+                fx_args = observation_dict['fx_args']
                 # print 'here'
-                x, P = predictor['predictor'].get_prediction()
+                x0 = predictor['predictor'].x
+                x, P = predictor['predictor'].get_prediction(fx_args=fx_args)
+                # print "xtip:{}\tytip:{}\tpixlen:{}\tw:{}".format(x0[0], x0[1], x0[4], x0[5])
                 prediction = predictor['predictor'].hx(x)
                 # print prediction
                 # print 'there'
@@ -81,7 +84,7 @@ class UnscentedKalmanTracker(object):
         # print 'here'
         observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
         # print 'there'
-
+        preds = []
         for i in range(len(observation_indices)):
             observation_index = observation_indices[i]
             prediction_index = prediction_indices[i]
@@ -91,9 +94,12 @@ class UnscentedKalmanTracker(object):
             # if cost < 30:
             observation_dict = observations[observation_index]
             z = observation_dict['z']
+            fx_args = observation_dict['fx_args']
 
-            self.predictors[prediction_index]['predictor'].predict()
+            self.predictors[prediction_index]['predictor'].predict(fx_args=fx_args)
+            
             self.predictors[prediction_index]['predictor'].update(z)
+            # preds.append(self.predictors[prediction_index]['predictor'].hx(self.predictors[i]['predictor'].x))
 
 
         # Prepare to add new observation if number exceeds predictions
@@ -130,7 +136,6 @@ class UnscentedKalmanTracker(object):
         # Return the label (numerical) of each assignment
         labels = [self.predictors[i]['label'] for i in prediction_indices]
         preds = [self.predictors[i]['predictor'].hx(self.predictors[i]['predictor'].x) for i in prediction_indices]
-
         return labels, preds
 
     def addPredictor(self, x0):
@@ -281,27 +286,41 @@ class KalmanTracker(object):
 
         self.current_predictor_label += 1
 
-def state_function(state, dt):
-    tipx, tipy, folx, foly, pixlen, omega, T = state[0], state[1], state[2], state[3], state[4], state[5], state[6]
+def state_function(state, dt, omega, angle):
+    tipx, tipy, folx, foly, pixlen = state[0], state[1], state[2], state[3], state[4]
 
-    theta = (tipy - foly) / (tipx - folx)
-    theta_new = theta + omega * dt
+    theta = -1 * np.arctan((tipy - foly) / (tipx - folx))
+    # print theta * 180 / np.pi
+    # theta_new = theta + omega * dt
+    # v = omega * pixlen
+    omega = (angle - theta) / dt
+    v = omega * pixlen
 
-    tipx = tipx + np.cos(theta_new - theta) * pixlen
-    tipy = tipy + np.sin(theta_new - theta) * pixlen
-    omega = omega - ((2 * np.pi / T) ** 2) * theta * dt
+    # print np.cos(theta_new - theta)
+    # tipx = tipx + np.cos(theta_new - theta) * pixlen
+    # tipy = tipy + np.sin(theta_new - theta) * pixlen
+    # print -v * np.cos(theta) * dt, -v * np.sin(theta) * dt
+    tipx = tipx - v * np.cos(theta + np.pi / 2) * dt
+    tipy = tipy + v * np.sin(theta) * dt
 
-    return np.array([tipx, tipy, folx, foly, pixlen, omega, T])
+
+    # print midpoint * 180 / np.pi
+    # print (theta - midpoint) * 180 / np.pi
+    # print ((2 * np.pi / T) ** 2) * (theta - midpoint) * dt
+    # omega = omega 
+    # omega = omega - ((2 * np.pi / T) ** 2) * (theta - midpoint) * dt
+
+    return np.array([tipx, tipy, folx, foly, pixlen])
 
 def measurement_function(state):
-    tipx, tipy, folx, foly, pixlen, omega, T = state[0], state[1], state[2], state[3], state[4], state[5], state[6]
+    tipx, tipy, folx, foly, pixlen = state[0], state[1], state[2], state[3], state[4]
 
     return np.array([tipx, tipy, folx, foly, pixlen])
 
 
 
-#State is [tipx, tipy, folx, foly, pixlen, omega, T]
-dim_x = 7
+#State is [tipx, tipy, folx, foly, pixlen, omega]
+dim_x = 5
 dim_z = 5
 
 # F = np.eye(dim_x)
@@ -310,9 +329,13 @@ dim_z = 5
 # ])
 # H = np.eye(dim_z)
 
-P0 = np.eye(dim_x) * 2
-R = np.eye(dim_z)
-Q = np.eye(dim_x)
+# P0 = np.eye(dim_x) * 2
+# R = np.eye(dim_z)
+# Q = np.eye(dim_x)
+
+P0 = np.eye(dim_x) * np.array([1, 1, 1, 0.5, 0.0001,])
+R = np.eye(dim_z) * np.array([1, 1, 0.0001, 0.0001, 5]) * 200
+Q = np.eye(dim_x) * np.array([1, 1, 0.0001, 0.0001, 0.0001,])
 
 dt = 30 ** -1
 
@@ -326,11 +349,30 @@ predictions = {}
 
 
 data = pandas.read_pickle('15000_frames_revised.pickle')
-data = data[data.frame < 400]
+data = data[(data.frame > 10000) & (data.frame < 10500) ]
 
-data_filtered = data[data.pixlen > 40].groupby('frame')
+data_filtered = data[data.pixlen > 20].groupby('frame')
+angles = data_filtered['angle'].apply(lambda x: x.mean()) * np.pi / 180
+diffs = angles.diff()
+
+
+# To estimate the period, find time it takes for change in mean angle to change signs
+
+# start_frame = data_filtered.frame[0]
+# end_frame = start_frame + 1
+# initial_direction = diffs[start_frame]
+# while not (np.sign(diffs[end_frame]) == np.sign(initial_direction)):
+#     end_frame += 1
+#     print end_frame
+
+# period = dt * (end_frame - start_frame) * 2
+# disp = (angles[end_frame] - angles[start_frame]) / 2
+# start_frame, end_frame = end_frame, end_frame + 1
+# initial_direction = diffs[start_frame]
 
 for frame, observations in data_filtered:
+    if frame == 0:
+        continue
     if frame % 1000 == 0:
         print frame
     
@@ -338,56 +380,73 @@ for frame, observations in data_filtered:
     observation_dicts = []
 
     for j, observation in observations.iterrows():
-        pixlen, tipx, tipy, folx, foly = observation.pixlen, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y
-
+        pixlen, tipx, tipy, folx, foly, angle = observation.pixlen, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y, observation.angle
+        angle *= np.pi / 180
         z = np.array([tipx, tipy, folx, foly, pixlen])
-        omega0 = 0
-        T = 0.0006
+        omega = ((diffs[frame]) / dt)
+
+        # print"Calculated angle:{}\tMeasured angle:{}".format(np.arctan((tipy - foly) / (tipx - folx)), angle)
+
         x0 = np.array(
-            [tipx, tipy, folx, foly, pixlen, omega0, T]
+            [tipx, tipy, folx, foly, pixlen]
         )
 
         observation_dicts.append({
             "x" : x0,
             "z" : z,
+            "fx_args" : (omega, angle)
         })
 
     labels, preds = tracker.detect(observation_dicts)
     predictions[frame] = dict([(labels[i], preds[i]) for i in range(len(preds))])
     data.loc[indices, 'color_group'] = labels
 
+    # Alter period if a sign change is observed
+    # if frame <= end_frame:
+    #     if not (np.sign(diffs[end_frame]) == np.sign(initial_direction)):
+    #         print "changed signs!"
+    #         period = dt * (end_frame - start_frame) * 2
+    #         disp = (angles[end_frame] - angles[start_frame]) / 2
+    #         start_frame, end_frame = end_frame, end_frame + 1
+    #         initial_direction = diffs[start_frame]
+    #     else:
+    #         end_frame = frame
 
-subset = data[ (data.frame > 1) & (data.pixlen < 2000)].groupby('frame')
+
+subset = data[ (data.frame > 10000) & (data.pixlen < 13000)].groupby('frame')
 
 plt.ion()
 for frame, whiskers in subset:
-  if frame == 0:
-    continue
-  plt.clf()
-  plt.xlim(0, 640)
-  plt.ylim(0, 640)
-  plt.gca().invert_yaxis()
-  plt.title('Frame: {}'.format(frame))
+    if frame == 0:
+        continue
+    plt.clf()
+    plt.xlim(0, 640)
+    plt.ylim(0, 640)
+    plt.gca().invert_yaxis()
+    plt.title('Frame: {}'.format(frame))
 
-  preds = predictions[frame]
+    preds = predictions[frame]
 
-  for key in preds.keys():
-    z = preds[key]
-    color = whisker_colors[int(key)]
-    print len(z)
-    tipx, tipy, foly  = z[0], z[1], z[2]
-    plt.plot(tipx, tipy, marker='o', color=color, markersize=15)
+    for key in preds.keys():
+        z = preds[key]
+        color = whisker_colors[int(key)]
+        tipx, tipy, foly  = z[0], z[1], z[2]
+        plt.plot(tipx, tipy, marker='o', color=color, markersize=15)
 
 
-  for i, whisker in whiskers.iterrows():
-    folx, foly = whisker['fol_x'], whisker['fol_y']
-    tipx, tipy = whisker['tip_x'], whisker['tip_y']
+    for i, whisker in whiskers.iterrows():
+        folx, foly = whisker['fol_x'], whisker['fol_y']
+        tipx, tipy = whisker['tip_x'], whisker['tip_y']
+        # angle = whisker['angle'] * np.pi / 180
+        # print"Calculated angle:{}\tMeasured angle:{}".format(np.arctan((tipy - foly) / (tipx - folx)), angle)
 
-    color = whisker_colors[int(whisker['color_group'])]
-    
-    plt.plot([folx, tipx], [foly, tipy], color=color)
+        color = whisker_colors[int(whisker['color_group'])]
 
-  plt.pause(0.01)
+        plt.plot([folx, tipx], [foly, tipy], color=color)
+
+    plt.figtext(0.4, 0.3, angles[frame] * 180 / np.pi)
+
+    plt.pause(0.05)
 
 
 

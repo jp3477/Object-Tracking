@@ -61,7 +61,7 @@ predictions = {}
 
 
 data = pandas.read_pickle('15000_frames_revised.pickle')
-data = data[(data.frame > 10000) & (data.frame < 12000) ]
+data = data[(data.frame > 10000) & (data.frame < 11000) ]
 
 oof_y_bonus = 200
 oof_y_thresh = 5
@@ -89,7 +89,7 @@ diffs = angles.diff()
 for frame, observations in data_filtered:
     if frame == 10001:
         continue
-    if frame % 1000 == 0:
+    if frame % 100 == 0:
         print frame
     
     indices = observations.index.values

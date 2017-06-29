@@ -51,7 +51,6 @@ class UnscentedKalmanTracker(object):
 
 
     def detect(self, observations):
-        # print [predictor['label'] for predictor in self.predictors]
         #Remove a predictor if it has had too many erroneous walks
         # for i, strikes in enumerate(self.strikes):
         #   if strikes > 5:
@@ -61,7 +60,7 @@ class UnscentedKalmanTracker(object):
 
         #update each prediction and form a cost matrix
 
-
+        current_predictors = self.predictors
         cost_matrix = np.zeros((len(observations), len(self.predictors)))
 
         #rows of cost matrix represent observations, columns represent predictions
@@ -69,43 +68,38 @@ class UnscentedKalmanTracker(object):
             for j, predictor in enumerate(self.predictors):
                 z = observation_dict['z']
                 fx_args = observation_dict['fx_args']
-                # print 'here'
                 x0 = predictor['predictor'].x
                 x, P = predictor['predictor'].get_prediction(fx_args=fx_args)
-                # print "xtip:{}\tytip:{}\tpixlen:{}\tw:{}".format(x0[0], x0[1], x0[4], x0[5])
                 prediction = predictor['predictor'].hx(x)
-                # print prediction
-                # print 'there'
+
                 # dist = np.linalg.norm(prediction - z) / (640 * np.sqrt(2))
                 R = predictor['predictor'].R
                 dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(R))
                 detP = np.linalg.det(P)
                 cost = dist
-                # if cost > 1:
-                #     print "super red alert!"
-                #     cost = 10000000
-                # cost = dist * detP
-                # print cost
                 cost_matrix[i, j] = cost
-                # print detP_weight
 
         observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
-        # print 'there'
-        preds = []
+        exclusion_indices = []
+        predictor_exclusion_indices = []
         for i in range(len(observation_indices)):
             observation_index = observation_indices[i]
             prediction_index = prediction_indices[i]
 
             cost = cost_matrix[observation_index, prediction_index]
-            # print cost
             observation_dict = observations[observation_index]
-            z = observation_dict['z']
             fx_args = observation_dict['fx_args']
+            z = observation_dict['z']
 
             self.predictors[prediction_index]['predictor'].predict(fx_args=fx_args)
             self.predictors[prediction_index]['predictor'].update(z)
 
-            # print "{}:\t {}".format(i,self.predictors[prediction_index]['predictor'].x[5])
+
+        observation_indices = np.delete(observation_indices, exclusion_indices)
+        prediction_indices = np.delete(prediction_indices, exclusion_indices)
+        current_predictors = np.delete(current_predictors, predictor_exclusion_indices)
+
+
 
 
             # preds.append(self.predictors[prediction_index]['predictor'].hx(self.predictors[i]['predictor'].x))
@@ -120,7 +114,6 @@ class UnscentedKalmanTracker(object):
         #     # self.predictors[i]['predictor'].R = np.eye(5) * np.array([1, 10, 0.0001, 0.0001, 1]) * 100000000
         #     self.predictors[i]['predictor'].predict(fx_args=self.predictors[i]['predictor'].fx_args)
         #     best_observation_index = np.argmin(cost_matrix[:, i])
-        #     # print cost_matrix[best_observation_index, i]
         #     observation_dict = observations[best_observation_index]
 
         #     z = observation_dict['z']
@@ -128,9 +121,9 @@ class UnscentedKalmanTracker(object):
 
 
         # Prepare to add new observation if number exceeds predictions
-        if len(observations) > len(self.predictors):
-            mask = np.in1d(np.arange(len(observations)), observation_indices)
+        if len(observations) > len(prediction_indices):
 
+            mask = np.in1d(np.arange(len(observations)), observation_indices)
             unused_indices = np.where(~mask)[0]
             for i in unused_indices:  
                 observation_dict = observations[i]
@@ -139,12 +132,9 @@ class UnscentedKalmanTracker(object):
                 self.addPredictor(x0, fx_args)
                 prediction_indices = np.append(prediction_indices, i)
 
-
-
         #If cost of any assignment is too high, increment strikes...threshold is arbitrary 
         for i, j in zip(observation_indices, prediction_indices):
             cost = cost_matrix[i, j]
-            # print "i:{}\t j:{}\t cost:{}".format(i, j, cost)
 
             if cost > 50:
                 self.strikes[j] += 1
@@ -210,7 +200,6 @@ class KalmanTracker(object):
 
 
     def detect(self, observations):
-        # print [predictor['label'] for predictor in self.predictors]
         #Remove a predictor if it has had too many erroneous walks
         # for i, strikes in enumerate(self.strikes):
         #   if strikes > 5:
@@ -234,19 +223,14 @@ class KalmanTracker(object):
                 detP = np.linalg.det(P)
                 cost = dist
                 # cost = dist * detP
-                # print cost
                 cost_matrix[i, j] = cost
-                # print detP_weight
-        # print 'here'
         observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
-        # print 'there'
 
         for i in range(len(observation_indices)):
             observation_index = observation_indices[i]
             prediction_index = prediction_indices[i]
 
             cost = cost_matrix[observation_index, prediction_index]
-            # print cost
             # if cost < 30:
             observation_dict = observations[observation_index]
             z = observation_dict['z']
@@ -279,7 +263,6 @@ class KalmanTracker(object):
         #If cost of any assignment is too high, increment strikes...threshold is arbitrary 
         for i, j in zip(observation_indices, prediction_indices):
             cost = cost_matrix[i, j]
-            # print "i:{}\t j:{}\t cost:{}".format(i, j, cost)
 
             if cost > 50:
                 self.strikes[j] += 1
@@ -315,8 +298,4 @@ class KalmanTracker(object):
 
         self.current_predictor_label += 1
 
-
-def weightedNorm(a, b, w):
-    q = np.matrix(w * (a-b))
-    return np.sqrt((q * q.T).sum())
 

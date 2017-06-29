@@ -43,15 +43,18 @@ def measurement_function(state):
 
 
 
-#State is [tipx, tipy, folx, foly, pixlen, omega]
-dim_x = 7
-dim_z = 6
+#State is [pixlen, rank]
+dim_x = 2
+dim_z = 2
 
 
-P0 = np.eye(dim_x) * np.array([1, 1, 1, 0.5, 0.0001, 0.1, 10 ])
+P0 = np.eye(dim_x) * np.array([0.0001, 0.0001])
 # R = np.eye(dim_z) * np.array([500, 500, 0.001, 0.001, 500,])
-R = np.eye(dim_z) * np.array([70, 70, 100, 100, 10, 0.11])
-Q = np.eye(dim_x) * np.array([11, 11, 9, 1.8 , 44, 20, 0.11])
+R = np.eye(dim_z) * np.array([10000, 10000])
+Q = np.eye(dim_x) * np.array([25, 0.25])
+
+F = np.eye(dim_x)
+H = np.eye(dim_z)
 
 dt = 200 ** -1
 
@@ -63,7 +66,7 @@ predictions = {}
 # Load the data to classify
 data = pandas.read_pickle(os.path.expanduser(
     '/mnt/nas2/homes/chris/whisker/test_bed/161215_KM91/masked_whisker_ends'))
-data = data[data.frame < 2000].copy()
+data = data[(data.frame > 0) & (data.frame < 12000)].copy()
 
 data['ordinal'] = 0
 
@@ -72,8 +75,7 @@ oof_y_thresh = 5
 data.loc[data.tip_y < oof_y_thresh, 'pixlen'] += oof_y_bonus
 
 data_filtered = data[data.pixlen > 20].groupby('frame')
-angles = data_filtered['angle'].apply(lambda x: x.mean()) * np.pi / 180
-diffs = angles.diff()
+
 
 
 # To estimate the period, find time it takes for change in mean angle to change signs
@@ -90,6 +92,7 @@ diffs = angles.diff()
 # start_frame, end_frame = end_frame, end_frame + 1
 # initial_direction = diffs[start_frame]
 
+first_frame = data_filtered.groups.keys()[0]
 for frame, observations in data_filtered:
     if frame == 0:
         continue
@@ -104,22 +107,22 @@ for frame, observations in data_filtered:
 
     for j, observation in observations.iterrows():
         pixlen, tipx, tipy, folx, foly, angle, rank = observation.pixlen, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y, observation.angle, observation['rank']
-        angle *= np.pi / 180
-        z = np.array([tipx, tipy, folx, foly, pixlen, rank])
-        omega = ((diffs[frame]) / dt)
+
+        z = np.array([pixlen, rank])
+
 
         x0 = np.array(
-            [tipx, tipy, folx, foly, pixlen, omega, rank]
+            [pixlen, rank]
         )
 
         observation_dicts.append({
             "x" : x0,
             "z" : z,
-            "fx_args" : (angle, folx, foly)
+            "fx_args" : ()
         })
 
     labels = tracker.detect(observation_dicts)
-    data.loc[indices, 'ordinal'] = labels
+    data.loc[indices, 'color_group'] = labels
 
 dat['color_group'] = data['ordinal']
 # Now pickle mwe and run validate_classification_results on it

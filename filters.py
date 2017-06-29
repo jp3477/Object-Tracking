@@ -184,13 +184,14 @@ class KalmanTracker(object):
     Uses Kalman Filters and assignments with a Hungarian algorithm to keep track
     of observed objects
     """
-    def __init__(self, P0, F, H, Q, R):
+    def __init__(self, P0, F, H, Q, R , show_predictions=False):
         self.predictors = [] #List of KalmanThreads
         self.current_predictor_label = 1
         # {'label': 1, 'predictor': KalmanThread}
         self.strikes = []
 
         self.P0, self.Q, self.R, self.F, self.H = P0, Q, R, F, H
+        self.show_predictions = show_predictions
 
         self.k = 0
 
@@ -214,9 +215,13 @@ class KalmanTracker(object):
                 z = observation_dict['z']
 
                 x, P = predictor['predictor'].get_prediction()
+                prediction = np.dot(predictor['predictor'].H, x)
+                # R = predictor['predictor'].R
+                R = np.eye(2) * np.array([5, 0.11])
+                dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(R))
 
-                dist = np.linalg.norm(x - z)
-                detP = np.linalg.det(P)
+                # dist = np.linalg.norm(x - z)
+                # detP = np.linalg.det(P)
                 cost = dist
                 # cost = dist * detP
                 cost_matrix[i, j] = cost
@@ -267,9 +272,12 @@ class KalmanTracker(object):
 
         # Return the label (numerical) of each assignment
         labels = [self.predictors[i]['label'] for i in prediction_indices]
-        preds = [self.predictors[i]['predictor'].x for i in prediction_indices]
 
-        return labels, preds
+        if self.show_predictions:
+            preds = [np.dot(self.predictors[i]['predictor'].H, self.predictors[i]['predictor'].x) for i in prediction_indices]
+            return labels, preds
+        else:
+            return labels
 
     def addPredictor(self, x0):
         dim_x = self.Q.shape[0]

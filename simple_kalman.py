@@ -2,50 +2,46 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas
 import pdb
-from filters import UnscentedKalmanTracker
+from filters import UnscentedKalmanTracker, KalmanTracker
 
 
 
-def state_function(state, dt, angle, new_folx, new_foly):
-    tipx, tipy, folx, foly, pixlen, omega, rank = state[0], state[1], state[2], state[3], state[4], state[5], state[6]
-    theta = -1 * np.arctan((tipy - foly) / (tipx - folx))
+def state_function(state, dt):
+    pixlen, rank = state[0], state[1]
 
-    # omega = (angle - theta) / dt
-    v = omega * pixlen
-
-
-    tipx = tipx + v * np.sin(theta) * dt
-    tipy = tipy + v * np.cos(theta) * dt
-
-    return np.array([tipx, tipy, folx, foly, pixlen, omega, rank])
+    return np.array([pixlen, rank])
 
 def measurement_function(state):
-    tipx, tipy, folx, foly, pixlen, rank = state[0], state[1], state[2], state[3], state[4], state[5]
+    pixlen, rank = state[0], state[1]
 
-    return np.array([tipx, tipy, folx, foly, pixlen, rank])
+    return np.array([pixlen, rank])
 
 
 
 #State is [tipx, tipy, folx, foly, pixlen, omega]
-dim_x = 7
-dim_z = 6
+dim_x = 2
+dim_z = 2
 
 
-P0 = np.eye(dim_x) * np.array([1, 1, 1, 0.5, 0.0001, 0.1, 10 ])
+P0 = np.eye(dim_x) * np.array([0.0001, 0.0001])
 # R = np.eye(dim_z) * np.array([500, 500, 0.001, 0.001, 500,])
-R = np.eye(dim_z) * np.array([70, 70, 100, 100, 10, 0.11])
-Q = np.eye(dim_x) * np.array([11, 11, 9, 1.8 , 44, 20, 0.11])
+R = np.eye(dim_z) * np.array([10000, 10000])
+Q = np.eye(dim_x) * np.array([25, 0.25])
+
+F = np.eye(dim_x)
+H = np.eye(dim_z)
 
 dt = 200 ** -1
 
-tracker = UnscentedKalmanTracker(P0, Q, R, state_function, measurement_function, dt)
+# tracker = UnscentedKalmanTracker(P0, Q, R, state_function, measurement_function, dt, show_predictions=True)
+tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=True)
 whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange']
 predictions = {}
 
 
 
 data = pandas.read_pickle('15000_frames_revised.pickle')
-data = data[(data.frame > 10000) & (data.frame < 11000) ]
+data = data[(data.frame > 10000) & (data.frame < 10500) ]
 
 oof_y_bonus = 200
 oof_y_thresh = 5
@@ -85,17 +81,17 @@ for frame, observations in data_filtered:
     for j, observation in observations.iterrows():
         pixlen, tipx, tipy, folx, foly, angle, rank = observation.pixlen, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y, observation.angle, observation['rank']
         angle *= np.pi / 180
-        z = np.array([tipx, tipy, folx, foly, pixlen, rank])
+        z = np.array([pixlen, rank])
         omega = ((diffs[frame]) / dt)
 
         x0 = np.array(
-            [tipx, tipy, folx, foly, pixlen, omega, rank]
+            [pixlen, rank]
         )
 
         observation_dicts.append({
             "x" : x0,
             "z" : z,
-            "fx_args" : (angle, folx, foly)
+            "fx_args" : ()
         })
 
     labels, preds = tracker.detect(observation_dicts)
@@ -114,7 +110,7 @@ for frame, observations in data_filtered:
     #         end_frame = frame
 
 
-subset = data[ (data.frame > 10200) & (data.frame < 15000)].groupby('frame')
+subset = data[ (data.frame > 10000) & (data.frame < 15000)].groupby('frame')
 
 plt.ion()
 for frame, whiskers in subset:
@@ -148,7 +144,7 @@ for frame, whiskers in subset:
 
     plt.figtext(0.4, 0.3, angles[frame] * 180 / np.pi)
 
-    plt.pause(0.05)
+    plt.pause(0.005)
 
 
 

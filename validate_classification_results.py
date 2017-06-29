@@ -16,8 +16,11 @@ args = parser.parse_args()
 results_filename = args.results
 
 ## Load curated results
+# curated_filename = os.path.expanduser(
+#     '~/mnt/nas2_home/whisker/test_bed/161215_KM91/curated')
 curated_filename = os.path.expanduser(
-    '~/mnt/nas2_home/whisker/test_bed/161215_KM91/curated')
+    '/mnt/nas2/homes/chris/whisker/test_bed/161215_KM91'
+    )
 curated_df = pandas.read_pickle(curated_filename)
 
 # Load jason's results

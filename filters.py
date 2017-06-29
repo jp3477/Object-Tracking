@@ -39,13 +39,14 @@ class UnscentedKalmanTracker(object):
     Uses Kalman Filters and assignments with a Hungarian algorithm to keep track
     of observed objects
     """
-    def __init__(self, P0, Q, R, f, h, dt):
+    def __init__(self, P0, Q, R, f, h, dt, show_predictions=False):
         self.predictors = [] #List of KalmanThreads
         self.current_predictor_label = 1
         # {'label': 1, 'predictor': KalmanThread}
         self.strikes = []
 
         self.P0, self.Q, self.R, self.f, self.h, self.dt = P0, Q, R, f, h, dt
+        self.show_predictions = show_predictions
 
         self.k = 0
 
@@ -143,17 +144,12 @@ class UnscentedKalmanTracker(object):
 
         # Return the label (numerical) of each assignment
         labels = [self.predictors[i]['label'] for i in prediction_indices]
-        # for i in range(len(observation_indices)):
-        #     observation_index = observation_indices[i]
-        #     prediction_index = prediction_indices[i]
 
-        #     cost = cost_matrix[observation_index, prediction_index]
-
-        #     if cost > 30:
-        #         labels[i] = 0
-
-        preds = [self.predictors[i]['predictor'].hx(self.predictors[i]['predictor'].x) for i in prediction_indices]
-        return labels, preds
+        if self.show_predictions:
+            preds = [self.predictors[i]['predictor'].hx(self.predictors[i]['predictor'].x) for i in prediction_indices]
+            return labels, preds
+        else:
+            return labels
 
     def addPredictor(self, x0, fx_args):
         dim_x = self.Q.shape[0]

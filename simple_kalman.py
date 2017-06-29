@@ -30,19 +30,6 @@ def measurement_function(state):
 dim_x = 7
 dim_z = 6
 
-# F = np.eye(dim_x)
-# F = np.array([
-#     [1, 0,  0,  0,  ]
-# ])
-# H = np.eye(dim_z)
-
-# P0 = np.eye(dim_x) * 2
-# R = np.eye(dim_z)
-# Q = np.eye(dim_x)
-
-# P0 = np.eye(dim_x) * np.array([1, 1, 1, 0.5, 0.0001,])
-# R = np.eye(dim_z) * np.array([1, 10, 0.0001, 0.0001, 1]) * 100000
-# Q = np.eye(dim_x) * np.array([1, 1, 0.0001, 0.0001, 0.0001,]) * 0.0001
 
 P0 = np.eye(dim_x) * np.array([1, 1, 1, 0.5, 0.0001, 0.1, 10 ])
 # R = np.eye(dim_z) * np.array([500, 500, 0.001, 0.001, 500,])
@@ -51,9 +38,6 @@ Q = np.eye(dim_x) * np.array([11, 11, 9, 1.8 , 44, 20, 0.11])
 
 dt = 200 ** -1
 
-# tracker = KalmanTracker(
-#     P0=P0, Q=Q, R=R, F=F, H=H,
-# )
 tracker = UnscentedKalmanTracker(P0, Q, R, state_function, measurement_function, dt)
 whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange']
 predictions = {}
@@ -95,10 +79,6 @@ for frame, observations in data_filtered:
     indices = observations.index.values
     observation_dicts = []
 
-    # boundary = max(observations.pixlen)
-    # center = observations.fol_y.mean()
-
-    # observations.rel_pos = 
     observations['rank'] = observations['fol_y'].rank()
 
 
@@ -107,9 +87,6 @@ for frame, observations in data_filtered:
         angle *= np.pi / 180
         z = np.array([tipx, tipy, folx, foly, pixlen, rank])
         omega = ((diffs[frame]) / dt)
-
-
-        # print"Calculated angle:{}\tMeasured angle:{}".format(np.arctan((tipy - foly) / (tipx - folx)), angle)
 
         x0 = np.array(
             [tipx, tipy, folx, foly, pixlen, omega, rank]

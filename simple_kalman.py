@@ -19,14 +19,14 @@ def measurement_function(state):
 
 
 #State is [tipx, tipy, folx, foly, pixlen, omega]
-dim_x = 2
-dim_z = 2
+dim_x = 4
+dim_z = 4
 
 
-P0 = np.eye(dim_x) * np.array([0.0001, 0.0001])
+P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1])
 # R = np.eye(dim_z) * np.array([500, 500, 0.001, 0.001, 500,])
-R = np.eye(dim_z) * np.array([10000, 10000])
-Q = np.eye(dim_x) * np.array([25, 0.25])
+R = np.eye(dim_z) * np.array([0.1, 0.1, 10000, 0.001])
+Q = np.eye(dim_x) * np.array([5, 5, 25, 100000])
 
 F = np.eye(dim_x)
 H = np.eye(dim_z)
@@ -66,8 +66,9 @@ diffs = angles.diff()
 # start_frame, end_frame = end_frame, end_frame + 1
 # initial_direction = diffs[start_frame]
 
+first_frame = sorted(data_filtered.groups.keys())[0]
 for frame, observations in data_filtered:
-    if frame == 10001:
+    if frame == first_frame:
         continue
     if frame % 100 == 0:
         print frame
@@ -75,17 +76,17 @@ for frame, observations in data_filtered:
     indices = observations.index.values
     observation_dicts = []
 
-    observations['rank'] = observations['fol_y'].rank()
+    observations['rank'] = observations['fol_y'].rank(ascending=False)
 
 
     for j, observation in observations.iterrows():
         pixlen, tipx, tipy, folx, foly, angle, rank = observation.pixlen, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y, observation.angle, observation['rank']
         angle *= np.pi / 180
-        z = np.array([pixlen, rank])
+        z = np.array([tipx, tipy, pixlen, rank / len(observations)])
         omega = ((diffs[frame]) / dt)
-
+        # print rank / len(observations)
         x0 = np.array(
-            [pixlen, rank]
+            [tipx, tipy, pixlen, rank / len(observations)]
         )
 
         observation_dicts.append({

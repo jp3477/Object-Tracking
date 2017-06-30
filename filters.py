@@ -184,10 +184,11 @@ class KalmanTracker(object):
     Uses Kalman Filters and assignments with a Hungarian algorithm to keep track
     of observed objects
     """
-    def __init__(self, P0, F, H, Q, R , show_predictions=False):
+    def __init__(self, P0, F, H, Q, R , max_object_count=8, max_strikes=20, show_predictions=False):
         self.predictors = [] #List of KalmanThreads
-        self.current_predictor_label = 1
+        self.current_predictor_labels = range(max_object_count, 0, -1)
         # {'label': 1, 'predictor': KalmanThread}
+        self.max_strikes = max_strikes
         self.strikes = []
 
         self.P0, self.Q, self.R, self.F, self.H = P0, Q, R, F, H
@@ -198,11 +199,29 @@ class KalmanTracker(object):
 
     def detect(self, observations):
         #Remove a predictor if it has had too many erroneous walks
-        # for i, strikes in enumerate(self.strikes):
-        #   if strikes > 5:
-        #     del self.strikes[i]
-        #     del self.predictors[i]
-        #     self.current_predictor_label -= 1
+        current_predictors = self.predictors
+        keep_indices = []
+        filtered_predictors = []
+        filtered_strikes = []
+        for i, strikes in enumerate(self.strikes):
+            if strikes < self.max_strikes:
+                keep_indices.append(i)
+            else:
+                self.current_predictor_labels.append(i)
+
+                # print len(self.strikes)
+                # del self.strikes[i]
+                # del self.predictors[i]
+                # self.current_predictor_labels.append(i)
+
+        for i in keep_indices:
+            filtered_predictors.append(self.predictors[i])
+            filtered_strikes.append(self.strikes[i])
+
+        self.predictors = filtered_predictors
+        self.strikes = filtered_strikes
+
+
 
         #update each prediction and form a cost matrix
 
@@ -217,7 +236,7 @@ class KalmanTracker(object):
                 x, P = predictor['predictor'].get_prediction()
                 prediction = np.dot(predictor['predictor'].H, x)
                 # R = predictor['predictor'].R
-                R = np.eye(2) * np.array([5, 0.11])
+                R = np.eye(4) * np.array([5, 5, 20, 0.004])
                 dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(R))
 
                 # dist = np.linalg.norm(x - z)
@@ -227,48 +246,66 @@ class KalmanTracker(object):
                 cost_matrix[i, j] = cost
         observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
 
+        exclusion_indices = []
+        predictor_exclusion_indices = []
         for i in range(len(observation_indices)):
             observation_index = observation_indices[i]
             prediction_index = prediction_indices[i]
 
             cost = cost_matrix[observation_index, prediction_index]
-            # if cost < 30:
-            observation_dict = observations[observation_index]
-            z = observation_dict['z']
+            if cost < 10:
+                observation_dict = observations[observation_index]
+                z = observation_dict['z']
 
-            self.predictors[prediction_index]['predictor'].predict()
-            self.predictors[prediction_index]['predictor'].update(z)
+                self.predictors[prediction_index]['predictor'].predict()
+                self.predictors[prediction_index]['predictor'].update(z)
+                self.strikes[prediction_index] = 0
+            else:
+                exclusion_indices.append(i)
+                predictor_exclusion_indices = prediction_index
+
+
+        if len(exclusion_indices) + len(self.predictors) < 8:
+            original_prediction_indices = prediction_indices
+            observation_indices = np.delete(observation_indices, exclusion_indices)
+            prediction_indices = np.delete(prediction_indices, exclusion_indices)
+            current_predictors = np.delete(current_predictors, predictor_exclusion_indices)
+        else:
+            for i in exclusion_indices:
+                observation_index = observation_indices[i]
+                prediction_index = prediction_indices[i]
+
+                observation_dict = observations[observation_index]
+                z = observation_dict['z']
+
+                self.predictors[prediction_index]['predictor'].predict()
+                self.predictors[prediction_index]['predictor'].update(z)
+
 
 
         # Prepare to add new observation if number exceeds predictions
-        if len(observations) > len(self.predictors):
+        if len(observations) > len(prediction_indices):
             mask = np.in1d(np.arange(len(observations)), observation_indices)
 
             unused_indices = np.where(~mask)[0]
             for i in unused_indices:  
-                observation_dict = observations[i]
-                x0 = observation_dict["x"]
-                self.addPredictor(x0)
-                prediction_indices = np.append(prediction_indices, i)
+                # if len(current_predictors) < 8:
+                    observation_dict = observations[i]
+                    x0 = observation_dict["x"]
+                    self.addPredictor(x0)
+                    prediction_indices = np.append(prediction_indices, i)
 
-        # if len(self.predictors) > len(observations):
-        #   mask = np.in1d(np.arange(len(self.predictors)), prediction_indices)
+        if len(current_predictors) > len(observations):
+            mask = np.in1d(np.arange(len(current_predictors)), prediction_indices)
 
-        #   unused_indices = np.where(~mask)[0]
+            unused_indices = np.where(~mask)[0]
+            #If assignment not made for a while, increment strikes...threshold is arbitrary 
 
-        #   # for i in unused_indices:
-        #   #   self.predictors[i]['predictor'].P
-
-
-
-        #If cost of any assignment is too high, increment strikes...threshold is arbitrary 
-        for i, j in zip(observation_indices, prediction_indices):
-            cost = cost_matrix[i, j]
-
-            if cost > 50:
+            for i in unused_indices:
                 self.strikes[j] += 1
-            else:
-                self.strikes[j] = 0
+
+        print self.current_predictor_labels
+
 
         # Return the label (numerical) of each assignment
         labels = [self.predictors[i]['label'] for i in prediction_indices]
@@ -294,12 +331,12 @@ class KalmanTracker(object):
         self.predictors.append(
           {
             'predictor' : kf,
-            'label' : self.current_predictor_label
+            'label' : self.current_predictor_labels.pop()
           }
         )
 
         self.strikes.append(0)
 
-        self.current_predictor_label += 1
+        # self.current_predictor_label += 1
 
 

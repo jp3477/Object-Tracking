@@ -26,7 +26,7 @@ dim_z = 4
 P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1])
 # R = np.eye(dim_z) * np.array([500, 500, 0.001, 0.001, 500,])
 R = np.eye(dim_z) * np.array([0.1, 0.1, 10000, 0.001])
-Q = np.eye(dim_x) * np.array([5, 5, 25, 100000])
+Q = np.eye(dim_x) * np.array([5, 5, 25, 0.01])
 
 F = np.eye(dim_x)
 H = np.eye(dim_z)
@@ -46,6 +46,7 @@ data = data[(data.frame > 10000) & (data.frame < 10500) ]
 oof_y_bonus = 200
 oof_y_thresh = 5
 data.loc[data.tip_y < oof_y_thresh, 'pixlen'] += oof_y_bonus
+
 
 data_filtered = data[data.pixlen > 20].groupby('frame')
 angles = data_filtered['angle'].apply(lambda x: x.mean()) * np.pi / 180

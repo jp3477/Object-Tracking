@@ -236,7 +236,7 @@ class KalmanTracker(object):
                 x, P = predictor['predictor'].get_prediction()
                 prediction = np.dot(predictor['predictor'].H, x)
                 # R = predictor['predictor'].R
-                R = np.eye(4) * np.array([5, 5, 20, 0.004])
+                R = np.eye(4) * np.array([5, 5, 40, 0.004])
                 dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(R))
 
                 # dist = np.linalg.norm(x - z)
@@ -248,12 +248,15 @@ class KalmanTracker(object):
 
         exclusion_indices = []
         predictor_exclusion_indices = []
+
+        extreme_cost_dict = {}
         for i in range(len(observation_indices)):
             observation_index = observation_indices[i]
             prediction_index = prediction_indices[i]
 
             cost = cost_matrix[observation_index, prediction_index]
-            if cost < 10:
+
+            if cost < 30:
                 observation_dict = observations[observation_index]
                 z = observation_dict['z']
 
@@ -261,25 +264,25 @@ class KalmanTracker(object):
                 self.predictors[prediction_index]['predictor'].update(z)
                 self.strikes[prediction_index] = 0
             else:
-                exclusion_indices.append(i)
-                predictor_exclusion_indices = prediction_index
+                extreme_cost_dict[i] = cost
 
 
-        if len(exclusion_indices) + len(self.predictors) < 8:
-            original_prediction_indices = prediction_indices
-            observation_indices = np.delete(observation_indices, exclusion_indices)
-            prediction_indices = np.delete(prediction_indices, exclusion_indices)
-            current_predictors = np.delete(current_predictors, predictor_exclusion_indices)
-        else:
-            for i in exclusion_indices:
-                observation_index = observation_indices[i]
-                prediction_index = prediction_indices[i]
+        sorted_exclusion_indices = sorted(extreme_cost_dict, key=extreme_cost_dict.get, reverse=True)
+        exclusion_indices = sorted_exclusion_indices[:len(self.predictors) + len(sorted_exclusion_indices) - 8]
+        remainding_indices = sorted_exclusion_indices[len(self.predictors) + len(sorted_exclusion_indices) - 8:]
 
-                observation_dict = observations[observation_index]
-                z = observation_dict['z']
 
-                self.predictors[prediction_index]['predictor'].predict()
-                self.predictors[prediction_index]['predictor'].update(z)
+        for i in remainding_indices:
+            observation_index = observation_indices[i]
+            prediction_index = prediction_indices[i]  
+                      
+            observation_dict = observations[observation_index]
+            z = observation_dict['z']
+
+            self.predictors[prediction_index]['predictor'].predict()
+            self.predictors[prediction_index]['predictor'].update(z) 
+            self.strikes[prediction_index] = 0           
+
 
 
 
@@ -290,10 +293,10 @@ class KalmanTracker(object):
             unused_indices = np.where(~mask)[0]
             for i in unused_indices:  
                 # if len(current_predictors) < 8:
-                    observation_dict = observations[i]
-                    x0 = observation_dict["x"]
-                    self.addPredictor(x0)
-                    prediction_indices = np.append(prediction_indices, i)
+                observation_dict = observations[i]
+                x0 = observation_dict["x"]
+                self.addPredictor(x0)
+                prediction_indices = np.append(prediction_indices, i)
 
         if len(current_predictors) > len(observations):
             mask = np.in1d(np.arange(len(current_predictors)), prediction_indices)
@@ -304,7 +307,7 @@ class KalmanTracker(object):
             for i in unused_indices:
                 self.strikes[j] += 1
 
-        print self.current_predictor_labels
+        # print self.current_predictor_labels
 
 
         # Return the label (numerical) of each assignment
@@ -338,5 +341,12 @@ class KalmanTracker(object):
         self.strikes.append(0)
 
         # self.current_predictor_label += 1
+
+def max_mahalanobis_distance(max_deviation, R):
+    origin = np.zeros(max_deviation.shape)
+    max_distance = spatial.distance.mahalanobis(max_deviation, origin, np.linalg.inv(R))
+
+    return max_distance
+
 
 

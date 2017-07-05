@@ -73,27 +73,7 @@ print "Assignments (C>J):\n%s" % ('\n'.join(['%s (%s) > %s' % (c_label, curated_
 print "Unassigned labels: %s" % (' '.join(map(str, unused_j_labels)))
 print
 
-## Score each frame
-# First translate j_labels to corresponding c_labels
-ares['jason_translated'] = ares['color_group_jason'].replace(
-    to_replace=j_labels, value=c_labels)
-
-# Mark ones that don't correspond to any c_label as nan
-ares.loc[~ares['color_group_jason'].isin(j_labels), 'jason_translated'] = np.nan
-
 ## Calculate performance
-perf_whisker_l = []
-n_hits = 0
-for c_label, j_label in zip(c_labels, j_labels):
-    n_hits += confusion_matrix.loc[c_label, j_label]
-    perf_whisker = confusion_matrix.loc[c_label, j_label] / float(
-        confusion_matrix.loc[c_label].sum())
-    perf_whisker_l.append(perf_whisker)
-frac_correct = n_hits / float(len(ares))    
-worst_whisker = np.min(perf_whisker_l)
-
-print "Overall: %0.2f" % frac_correct
-print "Worst whisker: %0.2f" % worst_whisker
 print "Confusion matrix: "
 relabeled_confusion_matrix = confusion_matrix.join(curated_num2name).set_index(
     'whisker')
@@ -111,3 +91,20 @@ specificity.index = sensitivity.index
 metrics = pandas.concat([sensitivity, specificity], axis=1, verify_integrity=True,
     keys=['sensitivity', 'specificity'])
 print metrics
+
+## Score each frame
+# First translate j_labels to corresponding c_labels
+ares['jason_translated'] = ares['color_group_jason'].replace(
+    to_replace=j_labels, value=c_labels)
+
+# Translate unassigned jlabels as np.nan
+ares.loc[~ares['color_group_jason'].isin(j_labels), 'jason_translated'] = np.nan
+ares['correct'] = ares['color_group'] == ares['jason_translated']
+score_by_frame = ares['correct'].sum(level=0) / ares['correct'].count(level=0)
+
+# Identify the most frequent error types
+confusion_matrix_errors_only = confusion_matrix.copy()
+for idx in range(len(confusion_matrix_errors_only.index)):
+    confusion_matrix_errors_only.iloc[idx, idx] = 0
+error_types_df = confusion_matrix_errors_only.unstack().sort_values(
+    ascending=False)

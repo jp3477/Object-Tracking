@@ -21,8 +21,6 @@ curated_filename = os.path.expanduser(
 curated_df = pandas.read_pickle(curated_filename)
 
 # Load jason's results
-#~ results_filename = os.path.expanduser(
-    #~ '~/mnt/nas2_home/whisker/test_bed/161215_KM91/15000_frames_revised.pickle')
 results = my.misc.pickle_load(results_filename)
 
 # Make labels consistent

@@ -1,12 +1,13 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from scipy import spatial
-import scipy.stats
-
+from scipy import stats
 from filterpy.kalman import KalmanFilter, UnscentedKalmanFilter, MerweScaledSigmaPoints, unscented_transform, JulierSigmaPoints
 from filterpy.common import Q_discrete_white_noise
 
 from HungarianMurty import k_best_costs
+
+
 
 
 class DerivedUnscentedKalmanFilter(UnscentedKalmanFilter):
@@ -273,14 +274,14 @@ class KalmanTracker(object):
         while not max_reached and len(prediction_indices) > 0:
             # print j
             # j += 1
-            min_likelihood = 0
+            min_likelihood = np.inf
             min_likelihood_index = 0  
 
             for i, label in enumerate(prelim_labels):
             # print self.individual_log_likelihood(label, len(observations))
 
                 likelihood = self.individual_log_likelihood(label, len(observations))
-                if likelihood > min_likelihood:
+                if likelihood < min_likelihood:
                     min_likelihood = likelihood
                     min_likelihood_index = i
 
@@ -432,7 +433,7 @@ class KalmanTracker(object):
         # print distributions
         order = range(len(labels))
 
-        prob = logpdf(order, distributions)
+        prob = logpmf(order, distributions)
         return prob
 
     def individual_log_likelihood(self, label, observation_count):
@@ -441,7 +442,7 @@ class KalmanTracker(object):
         distribution = rankings[observation_count][label]
 
 
-        return logpdf_single(label, distribution)
+        return logpmf_single(label, distribution)
 
 
 
@@ -456,7 +457,7 @@ def max_mahalanobis_distance(max_deviation, R):
 def logpdf_single(value, distribution):
     mean = np.mean(distribution)
     std = np.std(distribution) + 1e-18
-    return scipy.stats.norm(mean, std).logpdf(value)
+    return stats.norm(mean, std).logpdf(value)
 
 def logpdf(values, distributions):
     total = 0
@@ -466,6 +467,23 @@ def logpdf(values, distributions):
         prob = logpdf_single(value, distribution)
         total += prob
 
+
+    return total
+
+def logpmf_single(value, distribution):
+    xk = np.arange(1, 9)
+    pk = np.bincount(distribution, minlength=8) / float(len(distribution))
+    custm = stats.rv_discrete(name='custm', values=(xk, pk))
+
+    return custm.logpmf(value)
+
+def logpmf(values, distributions):
+    total = 0
+    for i, value in enumerate(values):
+        distribution = distributions[i]
+
+        prob = logpmf_single(value, distribution)
+        total += prob
 
     return total
 

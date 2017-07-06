@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from scipy import spatial
+import scipy.stats
 
 from filterpy.kalman import KalmanFilter, UnscentedKalmanFilter, MerweScaledSigmaPoints, unscented_transform, JulierSigmaPoints
 from filterpy.common import Q_discrete_white_noise
@@ -70,12 +71,13 @@ class UnscentedKalmanTracker(object):
                 z = observation_dict['z']
                 fx_args = observation_dict['fx_args']
                 x0 = predictor['predictor'].x
+
                 x, P = predictor['predictor'].get_prediction(fx_args=fx_args)
                 prediction = predictor['predictor'].hx(x)
 
-                # dist = np.linalg.norm(prediction - z) / (640 * np.sqrt(2))
+                dist = np.linalg.norm(prediction - z)
                 R = predictor['predictor'].R
-                dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(R))
+                # dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(R))
                 detP = np.linalg.det(P)
                 cost = dist
                 cost_matrix[i, j] = cost
@@ -83,9 +85,17 @@ class UnscentedKalmanTracker(object):
         observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
         exclusion_indices = []
         predictor_exclusion_indices = []
+        preds = []
         for i in range(len(observation_indices)):
             observation_index = observation_indices[i]
             prediction_index = prediction_indices[i]
+
+            predictor = self.predictors[prediction_index]['predictor']
+            prediction = predictor.hx(predictor.x)
+                
+            observation_dict = observations[observation_index]
+            z = observation_dict['z']
+            preds.append(prediction)
 
             cost = cost_matrix[observation_index, prediction_index]
             observation_dict = observations[observation_index]
@@ -96,9 +106,9 @@ class UnscentedKalmanTracker(object):
             self.predictors[prediction_index]['predictor'].update(z)
 
 
-        observation_indices = np.delete(observation_indices, exclusion_indices)
-        prediction_indices = np.delete(prediction_indices, exclusion_indices)
-        current_predictors = np.delete(current_predictors, predictor_exclusion_indices)
+        # observation_indices = np.delete(observation_indices, exclusion_indices)
+        # prediction_indices = np.delete(prediction_indices, exclusion_indices)
+        # current_predictors = np.delete(current_predictors, predictor_exclusion_indices)
 
 
 
@@ -146,7 +156,6 @@ class UnscentedKalmanTracker(object):
         labels = [self.predictors[i]['label'] for i in prediction_indices]
 
         if self.show_predictions:
-            preds = [self.predictors[i]['predictor'].hx(self.predictors[i]['predictor'].x) for i in prediction_indices]
             return labels, preds
         else:
             return labels
@@ -190,6 +199,7 @@ class KalmanTracker(object):
         # {'label': 1, 'predictor': KalmanThread}
         self.max_strikes = max_strikes
         self.strikes = []
+        self.rankings = None
 
         self.P0, self.Q, self.R, self.F, self.H = P0, Q, R, F, H
         self.show_predictions = show_predictions
@@ -237,29 +247,42 @@ class KalmanTracker(object):
                 prediction = np.dot(predictor['predictor'].H, x)
                 # R = predictor['predictor'].R
                 R = np.eye(4) * np.array([5, 5, 40, 0.004])
-                dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(R))
+                # R = np.array([
+                #     [5, 0, 0, 0],
+                #     [0, 5, 0, 0],
+                #     [0, 0, 40, 0],
+                #     [0, 0, 0, 0.004],
 
-                # dist = np.linalg.norm(x - z)
+                # ])
+                dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(P))
+
+                # dist = np.linalg.norm(prediction - z)
                 # detP = np.linalg.det(P)
                 cost = dist
                 # cost = dist * detP
                 cost_matrix[i, j] = cost
+
         observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
 
         exclusion_indices = []
         predictor_exclusion_indices = []
 
         extreme_cost_dict = {}
+        preds = []
         for i in range(len(observation_indices)):
             observation_index = observation_indices[i]
             prediction_index = prediction_indices[i]
 
             cost = cost_matrix[observation_index, prediction_index]
+            predictor = self.predictors[prediction_index]['predictor']
 
-            if cost < 30:
+            if cost < 10000:
+                prediction = np.dot(predictor.H, predictor.x)
+                
                 observation_dict = observations[observation_index]
                 z = observation_dict['z']
 
+                preds.append(np.dot(predictor.H, predictor.x))
                 self.predictors[prediction_index]['predictor'].predict()
                 self.predictors[prediction_index]['predictor'].update(z)
                 self.strikes[prediction_index] = 0
@@ -271,6 +294,10 @@ class KalmanTracker(object):
         exclusion_indices = sorted_exclusion_indices[:len(self.predictors) + len(sorted_exclusion_indices) - 8]
         remainding_indices = sorted_exclusion_indices[len(self.predictors) + len(sorted_exclusion_indices) - 8:]
 
+        observation_indices = np.delete(observation_indices, exclusion_indices)
+        prediction_indices = np.delete(prediction_indices, exclusion_indices)
+        # current_predictors = np.delete(current_predictors, predictor_exclusion_indices)
+
 
         for i in remainding_indices:
             observation_index = observation_indices[i]
@@ -278,7 +305,6 @@ class KalmanTracker(object):
                       
             observation_dict = observations[observation_index]
             z = observation_dict['z']
-
             self.predictors[prediction_index]['predictor'].predict()
             self.predictors[prediction_index]['predictor'].update(z) 
             self.strikes[prediction_index] = 0           
@@ -291,12 +317,18 @@ class KalmanTracker(object):
             mask = np.in1d(np.arange(len(observations)), observation_indices)
 
             unused_indices = np.where(~mask)[0]
+            new_prediction_indices = np.zeros(len(observations))
+            new_prediction_indices[observation_indices] = prediction_indices
             for i in unused_indices:  
                 # if len(current_predictors) < 8:
                 observation_dict = observations[i]
                 x0 = observation_dict["x"]
-                self.addPredictor(x0)
-                prediction_indices = np.append(prediction_indices, i)
+                new_prediction_index = self.addPredictor(x0)
+                new_prediction_indices[i] = new_prediction_index
+
+            prediction_indices = new_prediction_indices.astype(int)
+
+
 
         if len(current_predictors) > len(observations):
             mask = np.in1d(np.arange(len(current_predictors)), prediction_indices)
@@ -309,12 +341,12 @@ class KalmanTracker(object):
 
         # print self.current_predictor_labels
 
-
         # Return the label (numerical) of each assignment
         labels = [self.predictors[i]['label'] for i in prediction_indices]
-
+        if self.rankings:
+            print self.log_likelihood(labels)
         if self.show_predictions:
-            preds = [np.dot(self.predictors[i]['predictor'].H, self.predictors[i]['predictor'].x) for i in prediction_indices]
+            
             return labels, preds
         else:
             return labels
@@ -339,14 +371,46 @@ class KalmanTracker(object):
         )
 
         self.strikes.append(0)
+        return len(self.predictors) - 1
 
         # self.current_predictor_label += 1
+
+    def log_likelihood(self, labels):
+        rankings = self.rankings
+        observation_count = len(labels)
+        distributions = [rankings[observation_count][label] for label in labels]
+        # print distributions
+        order = range(len(labels))
+
+        prob = logpdf(order, distributions)
+        return prob
+
+
+
+
 
 def max_mahalanobis_distance(max_deviation, R):
     origin = np.zeros(max_deviation.shape)
     max_distance = spatial.distance.mahalanobis(max_deviation, origin, np.linalg.inv(R))
 
     return max_distance
+
+def logpdf_single(value, distribution):
+    mean = np.mean(distribution)
+    std = np.std(distribution) + 1e-18
+    return scipy.stats.norm(mean, std).logpdf(value)
+
+def logpdf(values, distributions):
+    total = 0
+    for i, value in enumerate(values):
+        distribution = distributions[i]
+
+        prob = logpdf_single(value, distribution)
+        total += prob
+
+
+    return total
+
 
 
 

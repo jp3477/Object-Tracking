@@ -41,7 +41,7 @@ predictions = {}
 
 
 data = pandas.read_pickle('15000_frames_revised.pickle')
-data = data[(data.frame > 10000) & (data.frame < 10500) ]
+data = data[(data.frame > 10000) & (data.frame < 10100) ]
 
 oof_y_bonus = 200
 oof_y_thresh = 5
@@ -67,8 +67,13 @@ diffs = angles.diff()
 # start_frame, end_frame = end_frame, end_frame + 1
 # initial_direction = diffs[start_frame]
 
+frequency_table = {}
+
+
+
 first_frame = sorted(data_filtered.groups.keys())[0]
 for frame, observations in data_filtered:
+
     if frame == first_frame:
         continue
     if frame % 100 == 0:
@@ -79,15 +84,22 @@ for frame, observations in data_filtered:
 
     observations['rank'] = observations['fol_y'].rank(ascending=False)
 
+    observation_count = len(observations)
+    if not observation_count in frequency_table:
+        frequency_table[observation_count] = {}
+        for i in range(1, 9):
+            frequency_table[observation_count][i] = []
 
+    tracker.rankings = frequency_table
     for j, observation in observations.iterrows():
         pixlen, tipx, tipy, folx, foly, angle, rank = observation.pixlen, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y, observation.angle, observation['rank']
+        
         angle *= np.pi / 180
-        z = np.array([tipx, tipy, pixlen, rank / len(observations)])
+        z = np.array([tipx, tipy, pixlen, rank])
         omega = ((diffs[frame]) / dt)
         # print rank / len(observations)
         x0 = np.array(
-            [tipx, tipy, pixlen, rank / len(observations)]
+            [tipx, tipy, pixlen, rank]
         )
 
         observation_dicts.append({
@@ -96,9 +108,27 @@ for frame, observations in data_filtered:
             "fx_args" : ()
         })
 
+
     labels, preds = tracker.detect(observation_dicts)
     predictions[frame] = dict([(labels[i], preds[i]) for i in range(len(preds))])
     data.loc[indices, 'color_group'] = labels
+
+
+
+    for i in range(observation_count):
+        label = labels[i]
+        frequency_table[observation_count][label].append(i)
+
+
+
+
+
+
+
+
+
+
+
 
     # Alter period if a sign change is observed
     # if frame <= end_frame:

@@ -19,17 +19,21 @@ def measurement_function(state):
 
 
 #State is [tipx, tipy, folx, foly, pixlen, omega]
-dim_x = 4
-dim_z = 4
+dim_x = 3
+dim_z = 2
 
 
-P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1])
+P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1])
 # R = np.eye(dim_z) * np.array([500, 500, 0.001, 0.001, 500,])
-R = np.eye(dim_z) * np.array([0.1, 0.1, 10000, 0.001])
-Q = np.eye(dim_x) * np.array([5, 5, 25, 0.01])
+R = np.eye(dim_z) * np.array([0.1, 0.1])
+Q = np.eye(dim_x) * np.array([5, 5, 25])
 
 F = np.eye(dim_x)
-H = np.eye(dim_z)
+# H = np.eye(dim_z)
+H = np.array([
+    [ 1, 0, 0],
+    [ 0, 1, 0],
+])
 
 dt = 200 ** -1
 
@@ -41,7 +45,7 @@ predictions = {}
 
 
 data = pandas.read_pickle('15000_frames_revised.pickle')
-data = data[(data.frame > 10000) & (data.frame < 10100) ]
+data = data[(data.frame > 10000) & (data.frame < 10500) ]
 
 oof_y_bonus = 200
 oof_y_thresh = 5
@@ -95,11 +99,11 @@ for frame, observations in data_filtered:
         pixlen, tipx, tipy, folx, foly, angle, rank = observation.pixlen, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y, observation.angle, observation['rank']
         
         angle *= np.pi / 180
-        z = np.array([tipx, tipy, pixlen, rank])
+        z = np.array([tipx, tipy])
         omega = ((diffs[frame]) / dt)
         # print rank / len(observations)
         x0 = np.array(
-            [tipx, tipy, pixlen, rank]
+            [tipx, tipy, pixlen]
         )
 
         observation_dicts.append({

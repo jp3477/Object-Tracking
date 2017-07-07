@@ -83,11 +83,11 @@ for frame, observations in data_filtered:
     if frame % 100 == 0:
         print frame
     
-    indices = observations.index.values
+
     observation_dicts = []
-
-    observations['rank'] = observations['fol_y'].rank(ascending=False)
-
+    observations = observations.sort_values('fol_y', ascending=True)
+    indices = observations.index.values
+    # observations['rank'] = observations['fol_y'].rank(ascending=False)
     observation_count = len(observations)
     if not observation_count in frequency_table:
         frequency_table[observation_count] = {}
@@ -96,7 +96,7 @@ for frame, observations in data_filtered:
 
     tracker.rankings = frequency_table
     for j, observation in observations.iterrows():
-        pixlen, tipx, tipy, folx, foly, angle, rank = observation.pixlen, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y, observation.angle, observation['rank']
+        pixlen, tipx, tipy, folx, foly, angle = observation.pixlen, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y, observation.angle
         
         angle *= np.pi / 180
         z = np.array([tipx, tipy])

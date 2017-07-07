@@ -222,10 +222,7 @@ class KalmanTracker(object):
                 keep_indices.append(i)
             else:
                 self.current_predictor_labels.append(current_predictors[i]['label'])
-                # print len(self.strikes)
-                # del self.strikes[i]
-                # del self.predictors[i]
-                # self.current_predictor_labels.append(i)
+
 
         for i in keep_indices:
             filtered_predictors.append(self.predictors[i])
@@ -248,85 +245,31 @@ class KalmanTracker(object):
 
                 x, P = predictor['predictor'].get_prediction()
                 prediction = np.dot(predictor['predictor'].H, x)
-                # R = predictor['predictor'].R
-                R = np.eye(3) * np.array([5, 5, 40])
-                # R = np.array([
-                #     [5, 0, 0, 0],
-                #     [0, 5, 0, 0],
-                #     [0, 0, 40, 0],
-                #     [0, 0, 0, 0.004],
 
-                # ])
-                # dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(P))
 
                 dist = np.linalg.norm(prediction - z)
-                # detP = np.linalg.det(P)
                 cost = dist
-                # cost = dist * detP
                 cost_matrix[i, j] = cost
 
         observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
         # assignments = k_best_costs(4, cost_matrix)
-        j = 0
-        # observation_indices, prediction_indices = assignments[j][:, 0], assignments[j][:, 1]
-        # print k_best_costs(3, cost_matrix)[1], cost_matrix[observation_indices, prediction_indices].sum()
+
         prelim_labels = [self.predictors[i]['label'] for i in prediction_indices]
-
-        best_log_likelihood = self.cumulative_log_likelihood(prelim_labels, observation_indices, len(observations))
-
-        max_reached = False
-
+        # print "frame: {}".format(self.k)
         for i, label in enumerate(prelim_labels):
             likelihood = self.individual_log_likelihood(label, observation_indices[i], len(observations))
+            observation_index = observation_indices[i]
+            prediction_index = prediction_indices[i]
+            # if len(observations) == 5:
+            #     print 10 ** likelihood, label
             if likelihood < -1.4:
                 # print likelihood
-                observation_index = observation_indices[i]
-                prediction_index = prediction_indices[i]
-                cost_matrix[observation_index, prediction_index] += 50
+                cost_matrix[observation_index, prediction_index] += 10
                 # print cost_matrix[observation_index, prediction_index] - 50, cost_matrix[observation_index, prediction_index]
+            elif likelihood > -0.4:
+                cost_matrix[observation_index, prediction_index] -= 10
         observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
 
-        # while not max_reached and len(prediction_indices) > 0:
-        #     # print j
-        #     j += 1
-        #     # min_likelihood = np.inf
-        #     # min_likelihood_index = 0  
-
-        #     # for i, label in enumerate(prelim_labels):
-        #     # # print self.individual_log_likelihood(label, len(observations))
-
-        #     #     likelihood = self.individual_log_likelihood(label, observation_indices[i], len(observations))
-
-        #     #     if likelihood < min_likelihood:
-        #     #         min_likelihood = likelihood
-        #     #         min_likelihood_index = i
-
-
-        #     # observation_index = observation_indices[min_likelihood_index]
-        #     # prediction_index = prediction_indices[min_likelihood_index]   
-        #     # cost_matrix_cp = cost_matrix.copy()
-        #     # cost_matrix_cp[observation_index, prediction_index] += 200000
-
-
-        #     # candidate_observation_indices, candidate_prediction_indices = linear_sum_assignment(cost_matrix_cp)
-        #     candidate_observation_indices, candidate_prediction_indices = assignments[j][:, 0], assignments[j][:, 1]
-
-        #     prelim_labels = [self.predictors[i]['label'] for i in candidate_prediction_indices]
-        #     cumulative_likelihood = self.cumulative_log_likelihood(prelim_labels, candidate_observation_indices, len(observations))
-            
-        #     if cumulative_likelihood > best_log_likelihood:
-        #         print "passing through!"
-        #         # print cumulative_likelihood, best_log_likelihood
-        #         # self.R = np.eye(3) * np.array([1000, 1000, 1000])
-        #         # observation_indices, prediction_indices = candidate_observation_indices, candidate_prediction_indices
-        #         # # cost_matrix = cost_matrix_cp
-
-        #         # best_log_likelihood = cumulative_likelihood
-                
-
-        #     else:
-        #         max_reached = True
-        #         # self.R = np.eye(3) * np.array([0.1, 0.1, 10000])
 
 
         exclusion_indices = []
@@ -354,6 +297,7 @@ class KalmanTracker(object):
                 self.predictors[prediction_index]['predictor'].update(z)
                 self.strikes[prediction_index] = 0
             else:
+                # extreme_cost_dict[i] = cost / self.predictors[prediction_index]['predictor'].x[2]
                 extreme_cost_dict[i] = cost
 
 
@@ -378,7 +322,11 @@ class KalmanTracker(object):
 
             observation_dict = observations[observation_index]
             z = observation_dict['z']
-            self.predictors[prediction_index]['predictor'].R = np.eye(2) * np.array([1000, 1000])
+            # print len(self.predictors) + len(exclusion_indices)
+            # if self.predictors[prediction_index]['predictor'].x[2] < 250:
+            #     self.predictors[prediction_index]['predictor'].R = np.eye(2) * np.array([1000, 1000])
+            # else:
+            #     self.predictors[prediction_index]['predictor'].R = self.R
             self.predictors[prediction_index]['predictor'].predict()
             self.predictors[prediction_index]['predictor'].update(z) 
             self.strikes[prediction_index] = 0           
@@ -386,6 +334,7 @@ class KalmanTracker(object):
 
         observation_indices = np.delete(observation_indices, exclusion_indices)
         prediction_indices = np.delete(prediction_indices, exclusion_indices)
+
         # current_predictors = np.delete(current_predictors, predictor_exclusion_indices)
 
 
@@ -397,7 +346,6 @@ class KalmanTracker(object):
             new_prediction_indices = np.zeros(len(observations))
             new_prediction_indices[observation_indices] = prediction_indices
             for i in unused_indices:
-                # if len(self.current_predictor_labels) > 0:
                 observation_dict = observations[i]
                 x0 = observation_dict["x"]
                 new_prediction_index = self.addPredictor(x0)

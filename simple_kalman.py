@@ -18,18 +18,17 @@ def measurement_function(state):
 
 
 
-#State is [tipx, tipy, folx, foly, pixlen, omega]
+#State is [tipx, tipy, pixlen]
+#Measurement is [tipx, tipy]
 dim_x = 3
 dim_z = 2
 
 
 P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1])
-# R = np.eye(dim_z) * np.array([500, 500, 0.001, 0.001, 500,])
 R = np.eye(dim_z) * np.array([0.1, 0.1])
 Q = np.eye(dim_x) * np.array([5, 5, 25])
 
 F = np.eye(dim_x)
-# H = np.eye(dim_z)
 H = np.array([
     [ 1, 0, 0],
     [ 0, 1, 0],
@@ -37,7 +36,6 @@ H = np.array([
 
 dt = 200 ** -1
 
-# tracker = UnscentedKalmanTracker(P0, Q, R, state_function, measurement_function, dt, show_predictions=True)
 tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=True)
 whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange']
 predictions = {}
@@ -55,21 +53,6 @@ data.loc[data.tip_y < oof_y_thresh, 'pixlen'] += oof_y_bonus
 data_filtered = data[data.pixlen > 20].groupby('frame')
 angles = data_filtered['angle'].apply(lambda x: x.mean()) * np.pi / 180
 diffs = angles.diff()
-
-
-# To estimate the period, find time it takes for change in mean angle to change signs
-
-# start_frame = data_filtered.frame[0]
-# end_frame = start_frame + 1
-# initial_direction = diffs[start_frame]
-# while not (np.sign(diffs[end_frame]) == np.sign(initial_direction)):
-#     end_frame += 1
-#     print end_frame
-
-# period = dt * (end_frame - start_frame) * 2
-# disp = (angles[end_frame] - angles[start_frame]) / 2
-# start_frame, end_frame = end_frame, end_frame + 1
-# initial_direction = diffs[start_frame]
 
 frequency_table = {}
 
@@ -124,28 +107,6 @@ for frame, observations in data_filtered:
         frequency_table[observation_count][label].append(i)
 
 
-
-
-
-
-
-
-
-
-
-
-    # Alter period if a sign change is observed
-    # if frame <= end_frame:
-    #     if not (np.sign(diffs[end_frame]) == np.sign(initial_direction)):
-    #         print "changed signs!"
-    #         period = dt * (end_frame - start_frame) * 2
-    #         disp = (angles[end_frame] - angles[start_frame]) / 2
-    #         start_frame, end_frame = end_frame, end_frame + 1
-    #         initial_direction = diffs[start_frame]
-    #     else:
-    #         end_frame = frame
-
-
 subset = data[ (data.frame > 10000) & (data.frame < 15000)].groupby('frame')
 
 plt.ion()
@@ -171,8 +132,6 @@ for frame, whiskers in subset:
     for i, whisker in whiskers.iterrows():
         folx, foly = whisker['fol_x'], whisker['fol_y']
         tipx, tipy = whisker['tip_x'], whisker['tip_y']
-        # angle = whisker['angle']
-        # print"Calculated angle:{}\tMeasured angle:{}".format(-1 * np.arctan((tipy - foly) / (tipx - folx)) * 180 / np.pi, angle)
 
         color = whisker_colors[int(whisker['color_group'])]
 
@@ -180,7 +139,7 @@ for frame, whiskers in subset:
 
     plt.figtext(0.4, 0.3, angles[frame] * 180 / np.pi)
 
-    plt.pause(0.005)
+    plt.pause(0.001)
 
 
 

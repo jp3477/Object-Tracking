@@ -234,8 +234,6 @@ class KalmanTracker(object):
 
 
         #update each prediction and form a cost matrix
-
-
         cost_matrix = np.zeros((len(observations), len(self.predictors)))
 
         #rows of cost matrix represent observations, columns represent predictions
@@ -243,6 +241,7 @@ class KalmanTracker(object):
             for j, predictor in enumerate(self.predictors):
                 z = observation_dict['z']
 
+                #Guess the output for a prediction and set its distance from observed value as cost
                 x, P = predictor['predictor'].get_prediction()
                 prediction = np.dot(predictor['predictor'].H, x)
 
@@ -251,24 +250,29 @@ class KalmanTracker(object):
                 cost = dist
                 cost_matrix[i, j] = cost
 
+        #Assign observations to predictions with cost matrix
         observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
-        # assignments = k_best_costs(4, cost_matrix)
+
 
         prelim_labels = [self.predictors[i]['label'] for i in prediction_indices]
-        # print "frame: {}".format(self.k)
+        
         for i, label in enumerate(prelim_labels):
+            #Find likelihood that a predictor is in this order with this number of observations
             likelihood = self.individual_log_likelihood(label, observation_indices[i], len(observations))
             observation_index = observation_indices[i]
             prediction_index = prediction_indices[i]
-            # if len(observations) == 5:
-            #     print 10 ** likelihood, label
+            
+            if label == 2:
+                # print "frame: {} \t cost: {} \t".format(self.k + 10000, cost_matrix[observation_index, prediction_index])
+
+            #Give a bonus to extremely likely matches, and detract from unlikely matches
             if likelihood < -1.4:
                 # print likelihood
-                cost_matrix[observation_index, prediction_index] += 10
+                cost_matrix[observation_index, prediction_index] += 15
                 # print cost_matrix[observation_index, prediction_index] - 50, cost_matrix[observation_index, prediction_index]
-            elif likelihood > -0.4:
-                cost_matrix[observation_index, prediction_index] -= 10
-        observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
+            elif likelihood > -0.06:
+                cost_matrix[observation_index, prediction_index] -= 15
+        # observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
 
 
 
@@ -281,9 +285,18 @@ class KalmanTracker(object):
             observation_index = observation_indices[i]
             prediction_index = prediction_indices[i]
 
+
+
             cost = cost_matrix[observation_index, prediction_index]
+
+            if self.predictors[prediction_index]['label'] == 2:
+                predictor = self.predictors[prediction_index]['predictor']
+                print "frame: {} \t cost: {} \t".format(self.k + 10000, cost)
             predictor = self.predictors[prediction_index]['predictor']
-            if cost < 100:
+
+
+
+            if (cost < 100 or predictor.x[2] > 250):
                
                 
                 observation_dict = observations[observation_index]
@@ -308,10 +321,14 @@ class KalmanTracker(object):
         # exclusion_indices = sorted_exclusion_indices[:len(self.predictors) + len(sorted_exclusion_indices) - 8]
         # remainding_indices = sorted_exclusion_indices[len(self.predictors) + len(sorted_exclusion_indices) - 8:]
 
-        right_cutoff = max(0, self.max_object_count - (len(self.predictors) + len(sorted_exclusion_indices)))
-        cutoff = min(len(sorted_exclusion_indices), right_cutoff)
+        # right_cutoff = max(0, self.max_object_count - (len(self.predictors) + len(sorted_exclusion_indices) + 1))
+        # cutoff = min(len(sorted_exclusion_indices), right_cutoff)
 
-        # print len(self.predictors), len(sorted_exclusion_indices), cutoff
+        # # print len(self.predictors), len(sorted_exclusion_indices), cutoff
+        # exclusion_indices = sorted_exclusion_indices[:cutoff]
+        # remainding_indices = sorted_exclusion_indices[cutoff:]
+
+        cutoff = min(self.max_object_count - len(self.predictors), len(sorted_exclusion_indices))
         exclusion_indices = sorted_exclusion_indices[:cutoff]
         remainding_indices = sorted_exclusion_indices[cutoff:]
 
@@ -319,7 +336,11 @@ class KalmanTracker(object):
 
         for i in remainding_indices:
             observation_index = observation_indices[i]
-            prediction_index = prediction_indices[i]  
+            prediction_index = prediction_indices[i]
+            cost = cost_matrix[observation_index, prediction_index]
+            # if self.predictors[prediction_index]['label'] == 6:
+            #     print "cost2: {}".format(cost)
+            #     print "sorted_exclusion_indices: {} \t exclusion_indices: {}\t predictor length: {} \t cutoff: {}".format(sorted_exclusion_indices, exclusion_indices, len(self.predictors), len(self.predictors))              
             if self.show_predictions:
                 preds[observation_index, :] = np.dot(self.predictors[prediction_index]['predictor'].H, self.predictors[prediction_index]['predictor'].x)
 
@@ -329,7 +350,7 @@ class KalmanTracker(object):
             # if self.predictors[prediction_index]['predictor'].x[2] < 250:
             #     self.predictors[prediction_index]['predictor'].R = np.eye(2) * np.array([1000, 1000])
             # else:
-            #     self.predictors[prediction_index]['predictor'].R = self.R
+            self.predictors[prediction_index]['predictor'].R = np.eye(2) * np.array([1000, 1000])
             self.predictors[prediction_index]['predictor'].predict()
             self.predictors[prediction_index]['predictor'].update(z) 
             self.strikes[prediction_index] = 0           

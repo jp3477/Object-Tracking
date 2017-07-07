@@ -9,7 +9,7 @@ import tables
 import my
 import numpy as np
 from kalman import *
-from filters import UnscentedKalmanTracker
+from filters import KalmanTracker
 
 
 ## Parse arguments
@@ -23,45 +23,27 @@ output_filename = args.output
 
 
 
-def state_function(state, dt, angle, new_folx, new_foly):
-    tipx, tipy, folx, foly, pixlen, omega, rank = state[0], state[1], state[2], state[3], state[4], state[5], state[6]
-    theta = -1 * np.arctan((tipy - foly) / (tipx - folx))
-
-    # omega = (angle - theta) / dt
-    v = omega * pixlen
-
-
-    tipx = tipx + v * np.sin(theta) * dt
-    tipy = tipy + v * np.cos(theta) * dt
-
-    return np.array([tipx, tipy, folx, foly, pixlen, omega, rank])
-
-def measurement_function(state):
-    tipx, tipy, folx, foly, pixlen, rank = state[0], state[1], state[2], state[3], state[4], state[5]
-
-    return np.array([tipx, tipy, folx, foly, pixlen, rank])
-
-
-
-#State is [pixlen, rank]
-dim_x = 2
+#State is [tipx, tipy, pixlen]
+#Measurement is [tipx, tipy]
+dim_x = 3
 dim_z = 2
 
 
-P0 = np.eye(dim_x) * np.array([0.0001, 0.0001])
-# R = np.eye(dim_z) * np.array([500, 500, 0.001, 0.001, 500,])
-R = np.eye(dim_z) * np.array([10000, 10000])
-Q = np.eye(dim_x) * np.array([25, 0.25])
+P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1])
+R = np.eye(dim_z) * np.array([0.1, 0.1])
+Q = np.eye(dim_x) * np.array([5, 5, 25])
 
 F = np.eye(dim_x)
-H = np.eye(dim_z)
+H = np.array([
+    [ 1, 0, 0],
+    [ 0, 1, 0],
+])
 
 dt = 200 ** -1
 
-tracker = UnscentedKalmanTracker(P0, Q, R, state_function, measurement_function, dt, show_predictions=False)
-whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange']
-predictions = {}
 
+tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=False)
+whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange']
 
 # Load the data to classify
 data = pandas.read_pickle(os.path.expanduser(
@@ -76,43 +58,38 @@ data.loc[data.tip_y < oof_y_thresh, 'pixlen'] += oof_y_bonus
 
 data_filtered = data[data.pixlen > 20].groupby('frame')
 
+frequency_table = {}
 
-
-# To estimate the period, find time it takes for change in mean angle to change signs
-
-# start_frame = data_filtered.frame[0]
-# end_frame = start_frame + 1
-# initial_direction = diffs[start_frame]
-# while not (np.sign(diffs[end_frame]) == np.sign(initial_direction)):
-#     end_frame += 1
-#     print end_frame
-
-# period = dt * (end_frame - start_frame) * 2
-# disp = (angles[end_frame] - angles[start_frame]) / 2
-# start_frame, end_frame = end_frame, end_frame + 1
-# initial_direction = diffs[start_frame]
 
 first_frame = data_filtered.groups.keys()[0]
 for frame, observations in data_filtered:
-    if frame == 0:
+
+    if frame == first_frame:
         continue
     if frame % 100 == 0:
         print frame
     
-    indices = observations.index.values
+
     observation_dicts = []
+    observations = observations.sort_values('fol_y', ascending=True)
+    indices = observations.index.values
+    # observations['rank'] = observations['fol_y'].rank(ascending=False)
+    observation_count = len(observations)
+    if not observation_count in frequency_table:
+        frequency_table[observation_count] = {}
+        for i in range(1, 9):
+            frequency_table[observation_count][i] = []
 
-    observations['rank'] = observations['fol_y'].rank()
-
-
+    tracker.rankings = frequency_table
     for j, observation in observations.iterrows():
-        pixlen, tipx, tipy, folx, foly, angle, rank = observation.pixlen, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y, observation.angle, observation['rank']
-
-        z = np.array([pixlen, rank])
-
-
+        pixlen, tipx, tipy, folx, foly, angle = observation.pixlen, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y, observation.angle
+        
+        angle *= np.pi / 180
+        z = np.array([tipx, tipy])
+        omega = ((diffs[frame]) / dt)
+        # print rank / len(observations)
         x0 = np.array(
-            [pixlen, rank]
+            [tipx, tipy, pixlen]
         )
 
         observation_dicts.append({
@@ -121,10 +98,18 @@ for frame, observations in data_filtered:
             "fx_args" : ()
         })
 
+
     labels = tracker.detect(observation_dicts)
     data.loc[indices, 'color_group'] = labels
 
-dat['color_group'] = data['ordinal']
+
+
+    for i in range(observation_count):
+        label = labels[i]
+        frequency_table[observation_count][label].append(i)
+
+
+data['color_group'] = data['ordinal']
 # Now pickle mwe and run validate_classification_results on it
 data.to_pickle(output_filename)
 

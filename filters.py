@@ -284,13 +284,15 @@ class KalmanTracker(object):
             cost = cost_matrix[observation_index, prediction_index]
             predictor = self.predictors[prediction_index]['predictor']
             if cost < 100:
-                prediction = np.dot(predictor.H, predictor.x) + self.R
+               
                 
                 observation_dict = observations[observation_index]
                 z = observation_dict['z']
 
                 # preds.append(np.dot(predictor.H, predictor.x))
-                preds[observation_index, :] = np.dot(predictor.H, predictor.x)
+                if self.show_predictions:
+                    prediction = np.dot(predictor.H, predictor.x)# + self.R
+                    preds[observation_index, :] = prediction
 
                 self.predictors[prediction_index]['predictor'].R = self.R
                 self.predictors[prediction_index]['predictor'].predict()
@@ -318,7 +320,8 @@ class KalmanTracker(object):
         for i in remainding_indices:
             observation_index = observation_indices[i]
             prediction_index = prediction_indices[i]  
-            preds[observation_index, :] = np.dot(self.predictors[prediction_index]['predictor'].H, self.predictors[prediction_index]['predictor'].x)
+            if self.show_predictions:
+                preds[observation_index, :] = np.dot(self.predictors[prediction_index]['predictor'].H, self.predictors[prediction_index]['predictor'].x)
 
             observation_dict = observations[observation_index]
             z = observation_dict['z']

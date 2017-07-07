@@ -262,7 +262,7 @@ class KalmanTracker(object):
             observation_index = observation_indices[i]
             prediction_index = prediction_indices[i]
             
-            if label == 2:
+            # if label == 2:
                 # print "frame: {} \t cost: {} \t".format(self.k + 10000, cost_matrix[observation_index, prediction_index])
 
             #Give a bonus to extremely likely matches, and detract from unlikely matches

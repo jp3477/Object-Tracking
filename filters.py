@@ -207,22 +207,31 @@ class Constraint(object):
         lower_angle_limit, upper_angle_limit =  -4 * np.pi / 9, 4 * np.pi / 9
 
         length_diff = ctrl.Antecedent(np.arange(lower_length_limit, upper_length_limit, 1), 'length_diff')
-        angle_diff = ctrl.Antecedent(np.linspace(lower_angle_limit, upper_angle_limit ), 'angle_diff')
+        angle_diff = ctrl.Antecedent(np.linspace(lower_angle_limit, upper_angle_limit), 'angle_diff')
         # foly_diff = ctrl.Antecedent(np.arange(-150, 150), 'foly_diff')
 
-        congruity = ctrl.Consequent(np.arange(0, 1), 'congruity')
+        congruity = ctrl.Consequent(np.linspace(0, 1), 'congruity')
 
-        length_diff['shorter'] = fuzz.trimf(length_diff.universe, [-600, -600 , -20])
+        # length_diff['shorter'] = fuzz.trimf(length_diff.universe, [-600, -600 , -20])
+        # length_diff['even'] = fuzz.trimf(length_diff.universe, [-20, 0, 20])
+        # length_diff['longer'] = fuzz.trimf(length_diff.universe, [20, 600, 600])
+
+        length_diff['shorter'] = fuzz.trapmf(length_diff.universe, [-600, -600, -40, -20])
         length_diff['even'] = fuzz.trimf(length_diff.universe, [-20, 0, 20])
-        length_diff['longer'] = fuzz.trimf(length_diff.universe, [20, 600, 600])
+        length_diff['longer'] = fuzz.trapmf(length_diff.universe, [20, 40, 600, 600])
 
-        angle_diff['more retracted'] = fuzz.trimf(angle_diff.universe, [lower_angle_limit, lower_angle_limit, -np.pi/32])
+        # angle_diff['more retracted'] = fuzz.trimf(angle_diff.universe, [lower_angle_limit, lower_angle_limit, -np.pi/32])
+        # angle_diff['even'] = fuzz.trimf(angle_diff.universe, [-np.pi/32, 0, np.pi/32])
+        # angle_diff['more protracted'] = fuzz.trimf(angle_diff.universe, [np.pi/32, upper_angle_limit, upper_angle_limit])
+
+        angle_diff['more retracted'] = fuzz.trapmf(angle_diff.universe, [lower_angle_limit, lower_angle_limit, -np.pi/16, -np.pi/32])
         angle_diff['even'] = fuzz.trimf(angle_diff.universe, [-np.pi/32, 0, np.pi/32])
-        angle_diff['more protracted'] = fuzz.trimf(angle_diff.universe, [np.pi/32, upper_angle_limit, upper_angle_limit])
+        angle_diff['more protracted'] = fuzz.trapmf(angle_diff.universe, [np.pi/32, np.pi/16, upper_angle_limit, upper_angle_limit])
 
         congruity['awful'] = fuzz.trimf(congruity.universe, [0, 0.1, 0.1])
         congruity['average'] = fuzz.trimf(congruity.universe, [0.1, 0.45, 0.8])
         congruity['great'] = fuzz.trimf(congruity.universe, [0.8, 1, 1])
+
 
         rule1 = ctrl.Rule(
             length_diff[rule_dict['length_rule']] &
@@ -242,15 +251,16 @@ class Constraint(object):
             congruity['awful']
         )
 
-        congruity_control = ctrl.ControlSystem([rule1, rule2, rule3])
-        self.congruity_calculator = ctrl.ControlSystemSimulation(congruity_control)
+        self.congruity_control = ctrl.ControlSystem([rule1, rule2, rule3])
         self.rule_dict = rule_dict
 
     def compute_congruity(self, comp_dict):
-        print comp_dict, self.rule_dict
-        congruity_calculator = self.congruity_calculator
+        congruity_control = self.congruity_control
+        congruity_calculator = ctrl.ControlSystemSimulation(congruity_control)
+
         congruity_calculator.inputs(comp_dict)
         congruity_calculator.compute()
+
         return congruity_calculator.output['congruity']
 
 class KalmanTracker(object):
@@ -325,7 +335,6 @@ class KalmanTracker(object):
 
                     cost = dist * likelihood ** -1
                     cost_list[j] = cost
-
             if len(self.predictors) > 0:
                 prediction_index = np.argmin(cost_list)
                 observation_indices.append(i)
@@ -653,6 +662,13 @@ class KalmanTracker(object):
             else:
                 angle_rule = 'even'
 
+            rule_dict = {
+                'length_rule': pixlen_rule,
+                'angle_rule' : angle_rule, 
+            }
+
+            print "{}->{} \t rules: {}".format(new_index, i, rule_dict) 
+            
             rules[i] = Constraint({
                 'length_rule': pixlen_rule,
                 'angle_rule' : angle_rule, 
@@ -684,6 +700,7 @@ class KalmanTracker(object):
             'label' : self.current_predictor_labels.pop()
           }
         )
+
 
         self.strikes.append(0)
         return new_index

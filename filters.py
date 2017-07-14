@@ -5,7 +5,10 @@ from scipy import stats
 from filterpy.kalman import KalmanFilter, UnscentedKalmanFilter, MerweScaledSigmaPoints, unscented_transform, JulierSigmaPoints
 from filterpy.common import Q_discrete_white_noise
 
-from HungarianMurty import k_best_costs
+# from HungarianMurty import k_best_costs
+
+import skfuzzy as fuzz
+from skfuzzy import control as ctrl
 
 
 
@@ -191,6 +194,65 @@ class UnscentedKalmanTracker(object):
 
         self.current_predictor_label += 1
 
+
+class Constraint(object):
+    def __init__(self, rule_dict):
+        # rule_dict = {
+        #     'length_rule': shorter,
+        #     'angle_rule': longer,
+        #     'fol_distance': more protracted,
+        # }
+
+        lower_length_limit, upper_length_limit = -600, 600
+        lower_angle_limit, upper_angle_limit =  -4 * np.pi / 9, 4 * np.pi / 9
+
+        length_diff = ctrl.Antecedent(np.arange(lower_length_limit, upper_length_limit, 1), 'length_diff')
+        angle_diff = ctrl.Antecedent(np.linspace(lower_angle_limit, upper_angle_limit ), 'angle_diff')
+        # foly_diff = ctrl.Antecedent(np.arange(-150, 150), 'foly_diff')
+
+        congruity = ctrl.Consequent(np.arange(0, 1), 'congruity')
+
+        length_diff['shorter'] = fuzz.trimf(length_diff.universe, [-600, -600 , -20])
+        length_diff['even'] = fuzz.trimf(length_diff.universe, [-20, 0, 20])
+        length_diff['longer'] = fuzz.trimf(length_diff.universe, [20, 600, 600])
+
+        angle_diff['more retracted'] = fuzz.trimf(angle_diff.universe, [lower_angle_limit, lower_angle_limit, -np.pi/32])
+        angle_diff['even'] = fuzz.trimf(angle_diff.universe, [-np.pi/32, 0, np.pi/32])
+        angle_diff['more protracted'] = fuzz.trimf(angle_diff.universe, [np.pi/32, upper_angle_limit, upper_angle_limit])
+
+        congruity['awful'] = fuzz.trimf(congruity.universe, [0, 0.1, 0.1])
+        congruity['average'] = fuzz.trimf(congruity.universe, [0.1, 0.45, 0.8])
+        congruity['great'] = fuzz.trimf(congruity.universe, [0.8, 1, 1])
+
+        rule1 = ctrl.Rule(
+            length_diff[rule_dict['length_rule']] &
+            angle_diff[rule_dict['angle_rule']],
+            congruity['great']
+        )
+
+        rule2 = ctrl.Rule(
+            length_diff[rule_dict['length_rule']] |
+            angle_diff[rule_dict['angle_rule']],
+            congruity['average']
+        )
+
+        rule3 = ctrl.Rule(
+            ~length_diff[rule_dict['length_rule']] &
+            ~angle_diff[rule_dict['angle_rule']],
+            congruity['awful']
+        )
+
+        congruity_control = ctrl.ControlSystem([rule1, rule2, rule3])
+        self.congruity_calculator = ctrl.ControlSystemSimulation(congruity_control)
+        self.rule_dict = rule_dict
+
+    def compute_congruity(self, comp_dict):
+        print comp_dict, self.rule_dict
+        congruity_calculator = self.congruity_calculator
+        congruity_calculator.inputs(comp_dict)
+        congruity_calculator.compute()
+        return congruity_calculator.output['congruity']
+
 class KalmanTracker(object):
     """
     Uses Kalman Filters and assignments with a Hungarian algorithm to keep track
@@ -209,6 +271,134 @@ class KalmanTracker(object):
         self.show_predictions = show_predictions
 
         self.k = 1
+
+
+    # def initalize_predictors(observations):
+    #     observation_dict = observations[i]
+    #     x0 = observation_dict["x"]
+    #     new_prediction_index = self.addPredictor(x0)
+    #     new_prediction_indices[i] = new_prediction_index
+
+    #     for i, observation_dict in enumerate(observations):
+    #         x0 = observation_dict["x"]
+
+    #         self.addPredictor(x0)
+
+    def detect2(self, observations):
+        observations_cp = observations
+        predictors_cp = self.predictors
+
+        observation_indices, prediction_indices = [], []
+        used_indices = []
+
+        for i, observation_dict in enumerate(observations):
+            cost_list = np.zeros(len(self.predictors))
+            cost_list[prediction_indices] = np.inf
+
+            for j, predictor in enumerate(self.predictors):
+                if j not in prediction_indices:
+                    z = observation_dict['z']
+                    x, P = predictor['predictor'].get_prediction()
+                    prediction = np.dot(predictor['predictor'].H, x)
+                    dist = np.linalg.norm(prediction - z)
+
+                    likelihood = 1
+
+                    for k, observation_index in enumerate(observation_indices):
+                        prediction_index = prediction_indices[k]
+                        matched_predictor = self.predictors[prediction_index]
+                        constraints = matched_predictor['rules'][j]
+
+
+                        x_obs = observations[observation_index]['x']
+                        x_other = observation_dict['x']
+
+                        congruity = constraints.compute_congruity(
+                            {
+                                'length_diff': x_obs[3] - x_other[3],
+                                'angle_diff': x_obs[2] - x_other[2],
+                            }
+                        )
+
+                        likelihood *= congruity
+
+
+                    cost = dist * likelihood ** -1
+                    cost_list[j] = cost
+
+            if len(self.predictors) > 0:
+                prediction_index = np.argmin(cost_list)
+                observation_indices.append(i)
+                prediction_indices.append(prediction_index)
+
+        preds = np.zeros((len(observations), 2))
+        for i in range(len(observation_indices)):
+            observation_index = observation_indices[i]
+            prediction_index = prediction_indices[i]
+
+
+
+
+            predictor = self.predictors[prediction_index]['predictor']
+
+
+
+            observation_dict = observations[observation_index]
+            z = observation_dict['z']
+
+            # preds.append(np.dot(predictor.H, predictor.x))
+            if self.show_predictions:
+                prediction = np.dot(predictor.H, predictor.x)# + self.R
+                preds[observation_index, :] = prediction
+
+            self.predictors[prediction_index]['predictor'].R = self.R
+            self.predictors[prediction_index]['predictor'].predict()
+            self.predictors[prediction_index]['predictor'].update(z)
+            self.strikes[prediction_index] = 0
+
+
+        if len(observations) > len(prediction_indices):
+            mask = np.in1d(np.arange(len(observations)), observation_indices)
+
+            unused_indices = np.where(~mask)[0]
+            new_prediction_indices = np.zeros(len(observations))
+            new_prediction_indices[observation_indices] = prediction_indices
+            for i in unused_indices:
+                observation_dict = observations[i]
+                x0 = observation_dict["x"]
+                new_prediction_index = self.addPredictor(x0)
+                new_prediction_indices[i] = new_prediction_index
+
+            prediction_indices = new_prediction_indices.astype(int)
+
+
+        labels = [self.predictors[i]['label'] for i in prediction_indices]
+        self.k += 1
+
+        if self.show_predictions: 
+            return labels, preds
+        else:
+            return labels
+
+
+ 
+
+
+
+
+
+
+
+
+        # for i, observation_dict in enumerate(observations):
+        #     cost_matrix = np.zeros((len(observations), i + 1))
+
+        #     predictor = self.predictors[0]['predictor']
+        #     z = observation_dict['z']
+        #     x, P = predictor.get_prediction()
+        #     prediction = np.dot(predictor['predictor'].H, x)
+        #     dist = np.linalg.norm(prediction - z)
+        #     cost_matrix[i, 0] = 
 
 
     def detect(self, observations):
@@ -414,15 +604,89 @@ class KalmanTracker(object):
         kf.R = self.R
         kf.Q = self.Q
 
+        rules = {}
+
+        new_index = len(self.predictors)
+
+        # lower_length_limit, upper_length_limit = -600, 600
+        # lower_angle_limit, upper_angle_limit =  -4 * np.pi / 9, 4 * np.pi / 9
+
+        # length_diff = ctrl.Antecedent(np.arange(lower_length_limit, upper_length_limit, 1), 'length_diff')
+        # angle_diff = ctrl.Antecedent(np.linspace(lower_angle_limit, upper_angle_limit ), 'angle_diff')
+        # # foly_diff = ctrl.Antecedent(np.arange(-150, 150), 'foly_diff')
+
+        # congruity = ctrl.Consequent(np.arange(0, 1), 'congruity')
+
+        # length_diff['shorter'] = fuzz.trimf(length_diff.universe, [-600, -600 , -20])
+        # length_diff['even'] = fuzz.trimf(length_diff.universe, [-20, 0, 20])
+        # length_diff['longer'] = fuzz.trimf(length_diff.universe, [20, 600, 600])
+
+        # angle_diff['more protracted'] = fuzz.trimf(angle_diff.universe, [lower_angle_limit, lower_angle_limit, -np.pi/32])
+        # angle_diff['even'] = fuzz.trimf(angle_diff.universe, [-np.pi/32, 0, np.pi/32])
+        # angle_diff['more retracted'] = fuzz.trimf(angle_diff.universe, [np.pi/32, upper_angle_limit, upper_angle_limit])
+
+        # congruity['awful'] = fuzz.trimf(congruity.universe, [0, 0, 0.33])
+        # congruity['average'] = fuzz.trimf(congruity.universe, [0.33, 0.5, 0.67])
+        # congruity['great'] = fuzz.trimf(congruity.universe, [0.67, 1, 1])
+
+        for i, predictor in enumerate(self.predictors):
+            angle, pixlen = x0[2], x0[3]
+
+            x = predictor['predictor'].x
+            angle_predictor, pixlen_predictor = x[2], x[3]
+
+            self.predictors[i]['rules'][new_index] = {}
+
+            pixlen_rule = ''
+            angle_rule = ''
+            if pixlen - pixlen_predictor < -20:
+                pixlen_rule = 'shorter'
+            elif pixlen - pixlen_predictor > 20:
+                pixlen_rule = 'longer'
+            else:
+                pixlen_rule = 'even'
+
+            if angle - angle_predictor < -np.pi / 32:
+                angle_rule = 'more retracted'
+            elif angle - angle_predictor > np.pi / 32:
+                angle_rule = 'more protracted'
+            else:
+                angle_rule = 'even'
+
+            rules[i] = Constraint({
+                'length_rule': pixlen_rule,
+                'angle_rule' : angle_rule, 
+            })
+
+            opp_rules = {}
+
+            if pixlen_rule == 'shorter':
+                opp_rules['length_rule'] = 'longer'
+            elif pixlen_rule == 'longer':
+                opp_rules['length_rule'] = 'shorter'
+            else:
+                opp_rules['length_rule'] = 'even'
+
+            if angle_rule == 'more protracted':
+                opp_rules['angle_rule'] = 'more retracted'
+            elif pixlen_rule == 'more retracted':
+                opp_rules['angle_rule'] = 'more protracted'
+            else:
+                opp_rules['angle_rule'] = 'even'
+
+            self.predictors[i]['rules'][new_index] = Constraint(opp_rules)
+
+
         self.predictors.append(
           {
             'predictor' : kf,
+            'rules' : rules,
             'label' : self.current_predictor_labels.pop()
           }
         )
 
         self.strikes.append(0)
-        return len(self.predictors) - 1
+        return new_index
 
         # self.current_predictor_label += 1
 

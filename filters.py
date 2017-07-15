@@ -4,11 +4,11 @@ from scipy import spatial
 from scipy import stats
 from filterpy.kalman import KalmanFilter, UnscentedKalmanFilter, MerweScaledSigmaPoints, unscented_transform, JulierSigmaPoints
 from filterpy.common import Q_discrete_white_noise
+from constraints import AngleConstraint, FollicleConstraint
 
 # from HungarianMurty import k_best_costs
 
-import skfuzzy as fuzz
-from skfuzzy import control as ctrl
+
 
 
 
@@ -195,73 +195,7 @@ class UnscentedKalmanTracker(object):
         self.current_predictor_label += 1
 
 
-class Constraint(object):
-    def __init__(self, rule_dict):
-        # rule_dict = {
-        #     'length_rule': shorter,
-        #     'angle_rule': longer,
-        #     'fol_distance': more protracted,
-        # }
 
-        lower_length_limit, upper_length_limit = -600, 600
-        lower_angle_limit, upper_angle_limit =  -4 * np.pi / 9, 4 * np.pi / 9
-
-        length_diff = ctrl.Antecedent(np.arange(lower_length_limit, upper_length_limit, 1), 'length_diff')
-        angle_diff = ctrl.Antecedent(np.linspace(lower_angle_limit, upper_angle_limit), 'angle_diff')
-        # foly_diff = ctrl.Antecedent(np.arange(-150, 150), 'foly_diff')
-
-        congruity = ctrl.Consequent(np.linspace(0, 1), 'congruity')
-
-        # length_diff['shorter'] = fuzz.trimf(length_diff.universe, [-600, -600 , -20])
-        # length_diff['even'] = fuzz.trimf(length_diff.universe, [-20, 0, 20])
-        # length_diff['longer'] = fuzz.trimf(length_diff.universe, [20, 600, 600])
-
-        length_diff['shorter'] = fuzz.trapmf(length_diff.universe, [-600, -600, -40, -20])
-        length_diff['even'] = fuzz.trimf(length_diff.universe, [-20, 0, 20])
-        length_diff['longer'] = fuzz.trapmf(length_diff.universe, [20, 40, 600, 600])
-
-        # angle_diff['more retracted'] = fuzz.trimf(angle_diff.universe, [lower_angle_limit, lower_angle_limit, -np.pi/32])
-        # angle_diff['even'] = fuzz.trimf(angle_diff.universe, [-np.pi/32, 0, np.pi/32])
-        # angle_diff['more protracted'] = fuzz.trimf(angle_diff.universe, [np.pi/32, upper_angle_limit, upper_angle_limit])
-
-        angle_diff['more retracted'] = fuzz.trapmf(angle_diff.universe, [lower_angle_limit, lower_angle_limit, -np.pi/16, -np.pi/32])
-        angle_diff['even'] = fuzz.trimf(angle_diff.universe, [-np.pi/32, 0, np.pi/32])
-        angle_diff['more protracted'] = fuzz.trapmf(angle_diff.universe, [np.pi/32, np.pi/16, upper_angle_limit, upper_angle_limit])
-
-        congruity['awful'] = fuzz.trimf(congruity.universe, [0, 0.1, 0.1])
-        congruity['average'] = fuzz.trimf(congruity.universe, [0.1, 0.45, 0.8])
-        congruity['great'] = fuzz.trimf(congruity.universe, [0.8, 1, 1])
-
-
-        rule1 = ctrl.Rule(
-            length_diff[rule_dict['length_rule']] &
-            angle_diff[rule_dict['angle_rule']],
-            congruity['great']
-        )
-
-        rule2 = ctrl.Rule(
-            length_diff[rule_dict['length_rule']] |
-            angle_diff[rule_dict['angle_rule']],
-            congruity['average']
-        )
-
-        rule3 = ctrl.Rule(
-            ~length_diff[rule_dict['length_rule']] &
-            ~angle_diff[rule_dict['angle_rule']],
-            congruity['awful']
-        )
-
-        self.congruity_control = ctrl.ControlSystem([rule1, rule2, rule3])
-        self.rule_dict = rule_dict
-
-    def compute_congruity(self, comp_dict):
-        congruity_control = self.congruity_control
-        congruity_calculator = ctrl.ControlSystemSimulation(congruity_control)
-
-        congruity_calculator.inputs(comp_dict)
-        congruity_calculator.compute()
-
-        return congruity_calculator.output['congruity']
 
 class KalmanTracker(object):
     """
@@ -326,14 +260,18 @@ class KalmanTracker(object):
                         congruity = constraints.compute_congruity(
                             {
                                 'length_diff': x_obs[3] - x_other[3],
-                                'angle_diff': x_obs[2] - x_other[2],
+                                'fol_diff': x_obs[2] - x_other[2],
                             }
                         )
 
                         likelihood *= congruity
 
+                    # print "{}%".format((likelihood ** -1 / dist)*100 )
+                    # cost = dist * likelihood ** -1
+                    # print "cost: {}\tdist: {}".format(cost, dist)
+                    # cost = dist
 
-                    cost = dist * likelihood ** -1
+                    
                     cost_list[j] = cost
             if len(self.predictors) > 0:
                 prediction_index = np.argmin(cost_list)
@@ -639,15 +577,15 @@ class KalmanTracker(object):
         # congruity['great'] = fuzz.trimf(congruity.universe, [0.67, 1, 1])
 
         for i, predictor in enumerate(self.predictors):
-            angle, pixlen = x0[2], x0[3]
+            foly, pixlen = x0[2], x0[3]
 
             x = predictor['predictor'].x
-            angle_predictor, pixlen_predictor = x[2], x[3]
+            foly_predictor, pixlen_predictor = x[2], x[3]
 
             self.predictors[i]['rules'][new_index] = {}
 
             pixlen_rule = ''
-            angle_rule = ''
+            fol_rule = ''
             if pixlen - pixlen_predictor < -20:
                 pixlen_rule = 'shorter'
             elif pixlen - pixlen_predictor > 20:
@@ -655,24 +593,21 @@ class KalmanTracker(object):
             else:
                 pixlen_rule = 'even'
 
-            if angle - angle_predictor < -np.pi / 32:
-                angle_rule = 'more retracted'
-            elif angle - angle_predictor > np.pi / 32:
-                angle_rule = 'more protracted'
+            if foly - foly_predictor < -3:
+                fol_rule = 'above'
+            elif foly - foly_predictor > 3:
+                fol_rule = 'below'
             else:
-                angle_rule = 'even'
+                fol_rule = 'even'
 
             rule_dict = {
                 'length_rule': pixlen_rule,
-                'angle_rule' : angle_rule, 
+                'fol_rule' : fol_rule, 
             }
 
             print "{}->{} \t rules: {}".format(new_index, i, rule_dict) 
-            
-            rules[i] = Constraint({
-                'length_rule': pixlen_rule,
-                'angle_rule' : angle_rule, 
-            })
+
+            rules[i] = FollicleConstraint(rule_dict)
 
             opp_rules = {}
 
@@ -683,14 +618,14 @@ class KalmanTracker(object):
             else:
                 opp_rules['length_rule'] = 'even'
 
-            if angle_rule == 'more protracted':
-                opp_rules['angle_rule'] = 'more retracted'
-            elif pixlen_rule == 'more retracted':
-                opp_rules['angle_rule'] = 'more protracted'
+            if fol_rule == 'above':
+                opp_rules['fol_rule'] = 'below'
+            elif pixlen_rule == 'below':
+                opp_rules['fol_rule'] = 'above'
             else:
-                opp_rules['angle_rule'] = 'even'
+                opp_rules['fol_rule'] = 'even'
 
-            self.predictors[i]['rules'][new_index] = Constraint(opp_rules)
+            self.predictors[i]['rules'][new_index] = FollicleConstraint(opp_rules)
 
 
         self.predictors.append(
@@ -774,6 +709,7 @@ def logpmf(values, distributions, max_object_count):
         total += prob
 
     return total
+
 
 
 

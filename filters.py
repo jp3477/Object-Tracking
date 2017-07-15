@@ -257,12 +257,19 @@ class KalmanTracker(object):
                         x_obs = observations[observation_index]['x']
                         x_other = observation_dict['x']
 
+                        length_diff = x_obs[3] - x_other[3]
+                        fol_diff = x_obs[2] - x_other[2]
+
+
                         congruity = constraints.compute_congruity(
                             {
-                                'length_diff': x_obs[3] - x_other[3],
-                                'fol_diff': x_obs[2] - x_other[2],
+                                'length_diff': length_diff,
+                                'fol_diff': fol_diff,
                             }
                         )
+
+                        if j == 4 and prediction_index == 1:
+                            print "{}->{}\tcongruity: {}".format(self.predictors[j]['label'], self.predictors[prediction_index]['label'], congruity)
 
                         likelihood *= congruity
 
@@ -270,11 +277,12 @@ class KalmanTracker(object):
                     # cost = dist * likelihood ** -1
                     # print "cost: {}\tdist: {}".format(cost, dist)
                     # cost = dist
-
-                    
+                    # cost = likelihood ** -1
+                    cost = -1 * np.log(likelihood)
                     cost_list[j] = cost
-            if len(self.predictors) > 0:
+            if len(self.predictors) - i > 0:
                 prediction_index = np.argmin(cost_list)
+                # print cost_list[prediction_index]
                 observation_indices.append(i)
                 prediction_indices.append(prediction_index)
 

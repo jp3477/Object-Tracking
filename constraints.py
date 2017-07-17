@@ -161,22 +161,15 @@ class FollicleConstraint(Constraint):
             fol_diff[fol_rule],
             congruity['great']
         )
-
         rule2 = ctrl.Rule(
-            length_diff[length_rule] |
-            fol_diff[fol_rule],
+            ~fol_diff[fol_rule],
             congruity['average']
         )
 
-        rule3 = ctrl.Rule(
-            ~length_diff[length_rule] &
-            ~fol_diff[fol_rule],
-            congruity['awful']
-        )
 
 
 
 
-        self.congruity_control = ctrl.ControlSystem([rule1, rule2, rule3])
+        self.congruity_control = ctrl.ControlSystem([rule1, rule2])
 
 

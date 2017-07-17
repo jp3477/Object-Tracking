@@ -254,10 +254,13 @@ class KalmanTracker(object):
 
         observation_indices, prediction_indices = [], []
         used_indices = []
+        
+        exclusion_count = 0
 
         for i, observation_dict in enumerate(observations):
             cost_list = np.zeros(len(self.predictors))
             cost_list[prediction_indices] = np.inf
+
 
             for j, predictor in enumerate(self.predictors):
                 if j not in prediction_indices:
@@ -289,7 +292,6 @@ class KalmanTracker(object):
                         #     }
                         congruity = constraints.compute_congruity(
                             {
-                                'length_diff': length_diff,
                                 'fol_diff': fol_diff,
                                 # 'closeness': abs_fol_diff,
                             }
@@ -306,14 +308,19 @@ class KalmanTracker(object):
                     # cost = dist
                     # cost = likelihood ** -1
 
-                    cost = 5 ** (-1 * np.log(likelihood) + 1) * dist
+                    cost = 20 ** (-1 * np.log(likelihood) + 1)
                     # print "dist: {}\t cost: {}\t likelihood: {}".format(dist, cost, likelihood)
                     cost_list[j] = cost
             if len(self.predictors) - i > 0:
                 prediction_index = np.argmin(cost_list)
-                # print cost_list[prediction_index]
-                observation_indices.append(i)
-                prediction_indices.append(prediction_index)
+
+                if cost_list[prediction_index] > 1000 and len(self.current_predictor_labels) - exclusion_count > 0:
+                    print cost_list[prediction_index]
+                    exclusion_count += 1
+                else:
+                    observation_indices.append(i)
+                    prediction_indices.append(prediction_index)                    
+
 
         preds = np.zeros((len(observations), 2))
         for i in range(len(observation_indices)):

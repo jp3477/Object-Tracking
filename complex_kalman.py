@@ -30,18 +30,18 @@ def arctan(y, x):
 
 #State is [tipx, tipy, pixlen]
 #Measurement is [tipx, tipy]
-dim_x = 4
+dim_x = 5
 dim_z = 2
 
 
-P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1])
+P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1, 0.1])
 R = np.eye(dim_z) * np.array([0.1, 0.1])
-Q = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1])
+Q = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1, 0.1])
 
 F = np.eye(dim_x)
 H = np.array([
-    [ 1, 0, 0, 0],
-    [ 0, 1, 0, 0],
+    [ 1, 0, 0, 0, 0],
+    [ 0, 1, 0, 0, 0],
 ])
 
 dt = 200 ** -1
@@ -91,7 +91,7 @@ for frame, observations in data_filtered:
         z = np.array([tipx, tipy])
 
         x0 = np.array(
-            [tipx, tipy, foly, pixlen]
+            [tipx, tipy, folx, foly, pixlen]
         )
 
         observation_dicts.append({

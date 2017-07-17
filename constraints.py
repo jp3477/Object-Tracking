@@ -100,12 +100,14 @@ class FollicleConstraint(Constraint):
         self.rule_dict = rule_dict
 
         lower_length_limit, upper_length_limit = -600, 600
+
         length_diff = ctrl.Antecedent(np.arange(lower_length_limit, upper_length_limit, 1), 'length_diff')
         length_diff['shorter'] = fuzz.trapmf(length_diff.universe, [-600, -600, -40, 0])
         length_diff['even'] = fuzz.trimf(length_diff.universe, [-40, 0, 40])
         length_diff['longer'] = fuzz.trapmf(length_diff.universe, [0, 40, 600, 600])
 
         lower_fol_limit, upper_fol_limit = -300, 300
+
         fol_diff = ctrl.Antecedent(np.linspace(lower_fol_limit, upper_fol_limit, 1000), 'fol_diff')
         # fol_diff['above'] = fuzz.trapmf(fol_diff.universe, [lower_fol_limit, lower_fol_limit, -5, 0])
         # fol_diff['even'] = fuzz.trimf(fol_diff.universe, [-5, 0, 5])
@@ -114,11 +116,15 @@ class FollicleConstraint(Constraint):
         fol_diff['above'] = fuzz.trapmf(fol_diff.universe, [lower_fol_limit, lower_fol_limit, -5, 5])
         fol_diff['below'] = fuzz.trapmf(fol_diff.universe, [-5, 5, upper_fol_limit, upper_fol_limit])
 
+        intersection_dist = ctrl.Antecedent(np.linspace(0, 300, 1000), 'intersection_dist')
+        intersection_dist['intersected'] = fuzz.trapmf(intersection_dist.universe, [0, 0, 10, 30])
+        intersection_dist['not intersected'] = fuzz.trapmf(intersection_dist.universe, [20, 40, 300, 300])
+
         # closeness = ctrl.Antecedent(np.linspace(0, upper_fol_limit, 1000), 'closeness')
         # closeness['near'] = fuzz.trapmf(closeness.universe, [0, 0, 20, 40])
         # closeness['far'] = fuzz.trapmf(closeness.universe, [20, 40, upper_fol_limit, upper_fol_limit])
 
-        length_rule, fol_rule, closeness_rule = rule_dict['length_rule'], rule_dict['fol_rule'], rule_dict['closeness_rule']
+        length_rule, fol_rule, closeness_rule, intersection_rule = rule_dict['length_rule'], rule_dict['fol_rule'], rule_dict['closeness_rule'], rule_dict['intersection_rule']
 
 
         # rule1 = ctrl.Rule(
@@ -158,10 +164,15 @@ class FollicleConstraint(Constraint):
         # )
 
         rule1 = ctrl.Rule(
+            ~intersection_dist[intersection_rule],
+            congruity['awful']
+        )
+
+        rule2 = ctrl.Rule(
             fol_diff[fol_rule],
             congruity['great']
         )
-        rule2 = ctrl.Rule(
+        rule3 = ctrl.Rule(
             ~fol_diff[fol_rule],
             congruity['average']
         )
@@ -170,6 +181,7 @@ class FollicleConstraint(Constraint):
 
 
 
-        self.congruity_control = ctrl.ControlSystem([rule1, rule2])
+
+        self.congruity_control = ctrl.ControlSystem([rule1, rule2, rule3])
 
 

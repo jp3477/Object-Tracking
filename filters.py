@@ -5,6 +5,7 @@ from scipy import stats
 from filterpy.kalman import KalmanFilter, UnscentedKalmanFilter, MerweScaledSigmaPoints, unscented_transform, JulierSigmaPoints
 from filterpy.common import Q_discrete_white_noise
 from constraints import AngleConstraint, FollicleConstraint
+from intersect import seg_intersect
 
 # from HungarianMurty import k_best_costs
 
@@ -280,9 +281,18 @@ class KalmanTracker(object):
                         x_obs = observations[observation_index]['x']
                         x_other = observation_dict['x']
 
-                        length_diff = x_obs[3] - x_other[3]
-                        fol_diff = x_obs[2] - x_other[2]
-                        abs_fol_diff = np.abs(fol_diff)
+                        x_obs_folx, x_obs_foly = x_obs[2], x_obs[3]
+                        x_obs_tipx, x_obs_tipy = x_obs[0], x_obs[1]
+
+                        x_other_folx, x_other_foly = x_other[2], x_other[3]
+                        x_other_tipx, x_other_tipy = x_other[0], x_other[1]
+
+                        intersection = seg_intersect([x_obs_folx, x_obs_foly], [x_obs_tipx, x_obs_tipy], [x_other_folx, x_other_foly], [x_other_tipx, x_other_tipy])
+                        intersection_dist = np.linalg.norm(intersection - np.array([x_obs_folx, x_obs_foly]))
+                        # length_diff = x_obs[3] - x_other[3]
+                        fol_diff = x_obs[3] - x_other[3]
+                        # abs_fol_diff = np.abs(fol_diff)
+            
 
                         # print constraints.rule_dict
                         # print                             {
@@ -293,6 +303,7 @@ class KalmanTracker(object):
                         congruity = constraints.compute_congruity(
                             {
                                 'fol_diff': fol_diff,
+                                'intersection_dist': intersection_dist
                                 # 'closeness': abs_fol_diff,
                             }
                         )
@@ -630,16 +641,20 @@ class KalmanTracker(object):
         # congruity['great'] = fuzz.trimf(congruity.universe, [0.67, 1, 1])
 
         for i, predictor in enumerate(self.predictors):
-            foly, pixlen = x0[2], x0[3]
+            tipx, tipy, folx, foly, pixlen = x0[0], x0[1], x0[2], x0[3], x0[4]
 
             x = predictor['predictor'].x
-            foly_predictor, pixlen_predictor = x[2], x[3]
+            tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x[0], x[1], x[2], x[3], x[4]
+
+            intersection = seg_intersect([folx, foly], [tipx, tipy], [folx_predictor, foly_predictor], [tipx_predictor, tipy_predictor])
+            intersection_dist = np.linalg.norm(intersection - np.array([folx, foly]))
 
             self.predictors[i]['rules'][new_index] = {}
 
             pixlen_rule = ''
             fol_rule = ''
             closeness_rule = ''
+            intersection_rule = ''
 
             if pixlen - pixlen_predictor < -20:
                 pixlen_rule = 'shorter'
@@ -659,10 +674,19 @@ class KalmanTracker(object):
             else:
                 closeness_rule = 'far'
 
+
+            if intersection_dist < 30:
+                intersection_rule = 'intersected'
+            else:
+                intersection_rule = 'not intersected'
+
+
+
             rule_dict = {
                 'length_rule': pixlen_rule,
                 'fol_rule' : fol_rule, 
                 'closeness_rule' : closeness_rule,
+                'intersection_rule': intersection_rule
             }
             print "{}->{} \t rules: {}".format(new_index, i, rule_dict) 
 
@@ -687,6 +711,8 @@ class KalmanTracker(object):
                 opp_rules['closeness_rule'] = 'far'
             else:
                 opp_rules['closeness_rule'] = 'near'
+
+            opp_rules['intersection_rule'] = intersection_rule
 
 
             self.predictors[i]['rules'][new_index] = FollicleConstraint(opp_rules)

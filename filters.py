@@ -229,6 +229,26 @@ class KalmanTracker(object):
     #         self.addPredictor(x0)
 
     def detect2(self, observations):
+
+        #Remove a predictor if it has had too many erroneous walks
+        current_predictors = self.predictors
+        keep_indices = []
+        filtered_predictors = []
+        filtered_strikes = []
+        for i, strikes in enumerate(self.strikes):
+            if strikes < self.max_strikes:
+                keep_indices.append(i)
+            else:
+                self.current_predictor_labels.append(current_predictors[i]['label'])
+
+
+        for i in keep_indices:
+            filtered_predictors.append(self.predictors[i])
+            filtered_strikes.append(self.strikes[i])
+
+        self.predictors = filtered_predictors
+        self.strikes = filtered_strikes
+
         observations_cp = observations
         predictors_cp = self.predictors
 
@@ -259,17 +279,24 @@ class KalmanTracker(object):
 
                         length_diff = x_obs[3] - x_other[3]
                         fol_diff = x_obs[2] - x_other[2]
+                        abs_fol_diff = np.abs(fol_diff)
 
-
+                        # print constraints.rule_dict
+                        # print                             {
+                        #         'length_diff': length_diff,
+                        #         'fol_diff': fol_diff,
+                        #         'closeness': abs_fol_diff,
+                        #     }
                         congruity = constraints.compute_congruity(
                             {
                                 'length_diff': length_diff,
                                 'fol_diff': fol_diff,
+                                # 'closeness': abs_fol_diff,
                             }
                         )
 
-                        if j == 4 and prediction_index == 1:
-                            print "{}->{}\tcongruity: {}".format(self.predictors[j]['label'], self.predictors[prediction_index]['label'], congruity)
+                        # if j == 4 and prediction_index == 1:
+                            # print "{}->{}\tcongruity: {}".format(self.predictors[j]['label'], self.predictors[prediction_index]['label'], congruity)
 
                         likelihood *= congruity
 
@@ -278,7 +305,9 @@ class KalmanTracker(object):
                     # print "cost: {}\tdist: {}".format(cost, dist)
                     # cost = dist
                     # cost = likelihood ** -1
-                    cost = -1 * np.log(likelihood)
+
+                    cost = 5 ** (-1 * np.log(likelihood) + 1) * dist
+                    # print "dist: {}\t cost: {}\t likelihood: {}".format(dist, cost, likelihood)
                     cost_list[j] = cost
             if len(self.predictors) - i > 0:
                 prediction_index = np.argmin(cost_list)
@@ -325,6 +354,15 @@ class KalmanTracker(object):
                 new_prediction_indices[i] = new_prediction_index
 
             prediction_indices = new_prediction_indices.astype(int)
+
+        if len(self.predictors) > len(observations):
+            mask = np.in1d(np.arange(len(self.predictors)), prediction_indices)
+
+            unused_indices = np.where(~mask)[0]
+            #If assignment not made for a while, increment strikes...threshold is arbitrary 
+
+            for i in unused_indices:
+                self.strikes[j] += 1
 
 
         labels = [self.predictors[i]['label'] for i in prediction_indices]
@@ -594,6 +632,8 @@ class KalmanTracker(object):
 
             pixlen_rule = ''
             fol_rule = ''
+            closeness_rule = ''
+
             if pixlen - pixlen_predictor < -20:
                 pixlen_rule = 'shorter'
             elif pixlen - pixlen_predictor > 20:
@@ -601,18 +641,22 @@ class KalmanTracker(object):
             else:
                 pixlen_rule = 'even'
 
-            if foly - foly_predictor < -3:
+            if foly - foly_predictor <= 0:
                 fol_rule = 'above'
-            elif foly - foly_predictor > 3:
+            elif foly - foly_predictor > 0:
                 fol_rule = 'below'
+
+
+            if np.abs(foly - foly_predictor) < 30 :
+                closeness_rule = 'near'
             else:
-                fol_rule = 'even'
+                closeness_rule = 'far'
 
             rule_dict = {
                 'length_rule': pixlen_rule,
                 'fol_rule' : fol_rule, 
+                'closeness_rule' : closeness_rule,
             }
-
             print "{}->{} \t rules: {}".format(new_index, i, rule_dict) 
 
             rules[i] = FollicleConstraint(rule_dict)
@@ -628,10 +672,15 @@ class KalmanTracker(object):
 
             if fol_rule == 'above':
                 opp_rules['fol_rule'] = 'below'
-            elif pixlen_rule == 'below':
+            elif fol_rule == 'below':
                 opp_rules['fol_rule'] = 'above'
+
+
+            if closeness_rule == 'near':
+                opp_rules['closeness_rule'] = 'far'
             else:
-                opp_rules['fol_rule'] = 'even'
+                opp_rules['closeness_rule'] = 'near'
+
 
             self.predictors[i]['rules'][new_index] = FollicleConstraint(opp_rules)
 

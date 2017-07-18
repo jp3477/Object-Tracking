@@ -48,7 +48,7 @@ whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange']
 # Load the data to classify
 data = pandas.read_pickle(os.path.expanduser(
     '/mnt/nas2/homes/chris/whisker/test_bed/161215_KM91/masked_whisker_ends'))
-data = data[(data.frame > 0) & (data.frame < 12000)].copy()
+#data = data[(data.frame > 0) & (data.frame < 12000)].copy()
 
 
 oof_y_bonus = 200

@@ -116,9 +116,12 @@ class FollicleConstraint(Constraint):
         fol_diff['above'] = fuzz.trapmf(fol_diff.universe, [lower_fol_limit, lower_fol_limit, -5, 5])
         fol_diff['below'] = fuzz.trapmf(fol_diff.universe, [-5, 5, upper_fol_limit, upper_fol_limit])
 
-        intersection_dist = ctrl.Antecedent(np.linspace(0, 300, 1000), 'intersection_dist')
-        intersection_dist['intersected'] = fuzz.trapmf(intersection_dist.universe, [0, 0, 10, 30])
-        intersection_dist['not intersected'] = fuzz.trapmf(intersection_dist.universe, [20, 40, 300, 300])
+        intersected = ctrl.Antecedent(np.arange(0, 1), 'intersected')
+        # intersection_dist['intersected'] = fuzz.trapmf(intersection_dist.universe, [0, 0, 10, 30])
+        # intersection_dist['not intersected'] = fuzz.trapmf(intersection_dist.universe, [20, 40, 300, 300])
+
+        intersected['false'] = fuzz.trimf(intersected.universe, [0, 0, 0])
+        intersected['true'] = fuzz.trimf(intersected.universe, [1, 1, 1])
 
         # closeness = ctrl.Antecedent(np.linspace(0, upper_fol_limit, 1000), 'closeness')
         # closeness['near'] = fuzz.trapmf(closeness.universe, [0, 0, 20, 40])
@@ -164,7 +167,7 @@ class FollicleConstraint(Constraint):
         # )
 
         rule1 = ctrl.Rule(
-            ~intersection_dist[intersection_rule],
+            ~intersected[intersection_rule],
             congruity['awful']
         )
 

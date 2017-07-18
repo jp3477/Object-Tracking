@@ -46,7 +46,7 @@ H = np.array([
 
 dt = 200 ** -1
 
-tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=True)
+tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=True, max_strikes=50)
 whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange']
 predictions = {}
 

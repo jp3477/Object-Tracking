@@ -5,7 +5,7 @@ from scipy import stats
 from filterpy.kalman import KalmanFilter, UnscentedKalmanFilter, MerweScaledSigmaPoints, unscented_transform, JulierSigmaPoints
 from filterpy.common import Q_discrete_white_noise
 from constraints import AngleConstraint, FollicleConstraint
-from intersect import seg_intersect
+from intersect import closestDistanceBetweenLines
 
 # from HungarianMurty import k_best_costs
 
@@ -262,6 +262,9 @@ class KalmanTracker(object):
             cost_list = np.zeros(len(self.predictors))
             cost_list[prediction_indices] = np.inf
 
+            dist_list = np.zeros(len(self.predictors))
+            dist_list[prediction_indices] = np.inf
+
 
             for j, predictor in enumerate(self.predictors):
                 if j not in prediction_indices:
@@ -287,8 +290,13 @@ class KalmanTracker(object):
                         x_other_folx, x_other_foly = x_other[2], x_other[3]
                         x_other_tipx, x_other_tipy = x_other[0], x_other[1]
 
-                        intersection = seg_intersect([x_obs_folx, x_obs_foly], [x_obs_tipx, x_obs_tipy], [x_other_folx, x_other_foly], [x_other_tipx, x_other_tipy])
-                        intersection_dist = np.linalg.norm(intersection - np.array([x_obs_folx, x_obs_foly]))
+                        # intersection = seg_intersect([x_obs_folx, x_obs_foly], [x_obs_tipx, x_obs_tipy], [x_other_folx, x_other_foly], [x_other_tipx, x_other_tipy])
+                        # intersection_dist = np.linalg.norm(intersection - np.array([x_obs_folx, x_obs_foly]))
+                        _, _, dist_between_segments = closestDistanceBetweenLines([x_obs_folx, x_obs_foly, 0], [x_obs_tipx, x_obs_tipy, 0], [x_other_folx, x_other_foly, 0], [x_other_tipx, x_other_tipy, 0], clampAll=True)
+                        intersect = False
+                        if dist_between_segments < 5:
+                            intersect = True
+
                         # length_diff = x_obs[3] - x_other[3]
                         fol_diff = x_obs[3] - x_other[3]
                         # abs_fol_diff = np.abs(fol_diff)
@@ -303,7 +311,7 @@ class KalmanTracker(object):
                         congruity = constraints.compute_congruity(
                             {
                                 'fol_diff': fol_diff,
-                                'intersection_dist': intersection_dist
+                                'intersected': intersect
                                 # 'closeness': abs_fol_diff,
                             }
                         )
@@ -319,18 +327,19 @@ class KalmanTracker(object):
                     # cost = dist
                     # cost = likelihood ** -1
 
-                    cost = 20 ** (-1 * np.log(likelihood) + 1)
+                    cost = 100 ** (-1 * np.log(likelihood) + 1)
                     # print "dist: {}\t cost: {}\t likelihood: {}".format(dist, cost, likelihood)
                     cost_list[j] = cost
+                    dist_list[j] = dist
             if len(self.predictors) - i > 0:
                 prediction_index = np.argmin(cost_list)
 
-                if cost_list[prediction_index] > 1000 and len(self.current_predictor_labels) - exclusion_count > 0:
-                    print cost_list[prediction_index]
-                    exclusion_count += 1
-                else:
-                    observation_indices.append(i)
-                    prediction_indices.append(prediction_index)                    
+                # if cost_list[prediction_index] > 1000 and len(self.current_predictor_labels) - exclusion_count > 0 and dist_list[prediction_index] > 100:
+                #     # print cost_list[prediction_index], dist_list[prediction_index]
+                #     exclusion_count += 1
+                # else:
+                observation_indices.append(i)
+                prediction_indices.append(prediction_index)  
 
 
         preds = np.zeros((len(observations), 2))
@@ -390,14 +399,6 @@ class KalmanTracker(object):
             return labels, preds
         else:
             return labels
-
-
- 
-
-
-
-
-
 
 
 
@@ -619,103 +620,103 @@ class KalmanTracker(object):
 
         new_index = len(self.predictors)
 
-        # lower_length_limit, upper_length_limit = -600, 600
-        # lower_angle_limit, upper_angle_limit =  -4 * np.pi / 9, 4 * np.pi / 9
+        # # lower_length_limit, upper_length_limit = -600, 600
+        # # lower_angle_limit, upper_angle_limit =  -4 * np.pi / 9, 4 * np.pi / 9
 
-        # length_diff = ctrl.Antecedent(np.arange(lower_length_limit, upper_length_limit, 1), 'length_diff')
-        # angle_diff = ctrl.Antecedent(np.linspace(lower_angle_limit, upper_angle_limit ), 'angle_diff')
-        # # foly_diff = ctrl.Antecedent(np.arange(-150, 150), 'foly_diff')
+        # # length_diff = ctrl.Antecedent(np.arange(lower_length_limit, upper_length_limit, 1), 'length_diff')
+        # # angle_diff = ctrl.Antecedent(np.linspace(lower_angle_limit, upper_angle_limit ), 'angle_diff')
+        # # # foly_diff = ctrl.Antecedent(np.arange(-150, 150), 'foly_diff')
 
-        # congruity = ctrl.Consequent(np.arange(0, 1), 'congruity')
+        # # congruity = ctrl.Consequent(np.arange(0, 1), 'congruity')
 
-        # length_diff['shorter'] = fuzz.trimf(length_diff.universe, [-600, -600 , -20])
-        # length_diff['even'] = fuzz.trimf(length_diff.universe, [-20, 0, 20])
-        # length_diff['longer'] = fuzz.trimf(length_diff.universe, [20, 600, 600])
+        # # length_diff['shorter'] = fuzz.trimf(length_diff.universe, [-600, -600 , -20])
+        # # length_diff['even'] = fuzz.trimf(length_diff.universe, [-20, 0, 20])
+        # # length_diff['longer'] = fuzz.trimf(length_diff.universe, [20, 600, 600])
 
-        # angle_diff['more protracted'] = fuzz.trimf(angle_diff.universe, [lower_angle_limit, lower_angle_limit, -np.pi/32])
-        # angle_diff['even'] = fuzz.trimf(angle_diff.universe, [-np.pi/32, 0, np.pi/32])
-        # angle_diff['more retracted'] = fuzz.trimf(angle_diff.universe, [np.pi/32, upper_angle_limit, upper_angle_limit])
+        # # angle_diff['more protracted'] = fuzz.trimf(angle_diff.universe, [lower_angle_limit, lower_angle_limit, -np.pi/32])
+        # # angle_diff['even'] = fuzz.trimf(angle_diff.universe, [-np.pi/32, 0, np.pi/32])
+        # # angle_diff['more retracted'] = fuzz.trimf(angle_diff.universe, [np.pi/32, upper_angle_limit, upper_angle_limit])
 
-        # congruity['awful'] = fuzz.trimf(congruity.universe, [0, 0, 0.33])
-        # congruity['average'] = fuzz.trimf(congruity.universe, [0.33, 0.5, 0.67])
-        # congruity['great'] = fuzz.trimf(congruity.universe, [0.67, 1, 1])
+        # # congruity['awful'] = fuzz.trimf(congruity.universe, [0, 0, 0.33])
+        # # congruity['average'] = fuzz.trimf(congruity.universe, [0.33, 0.5, 0.67])
+        # # congruity['great'] = fuzz.trimf(congruity.universe, [0.67, 1, 1])
 
-        for i, predictor in enumerate(self.predictors):
-            tipx, tipy, folx, foly, pixlen = x0[0], x0[1], x0[2], x0[3], x0[4]
+        # for i, predictor in enumerate(self.predictors):
+        #     tipx, tipy, folx, foly, pixlen = x0[0], x0[1], x0[2], x0[3], x0[4]
 
-            x = predictor['predictor'].x
-            tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x[0], x[1], x[2], x[3], x[4]
+        #     x = predictor['predictor'].x
+        #     tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x[0], x[1], x[2], x[3], x[4]
 
-            intersection = seg_intersect([folx, foly], [tipx, tipy], [folx_predictor, foly_predictor], [tipx_predictor, tipy_predictor])
-            intersection_dist = np.linalg.norm(intersection - np.array([folx, foly]))
+        #     intersection = seg_intersect([folx, foly], [tipx, tipy], [folx_predictor, foly_predictor], [tipx_predictor, tipy_predictor])
+        #     intersection_dist = np.linalg.norm(intersection - np.array([folx, foly]))
 
-            self.predictors[i]['rules'][new_index] = {}
+        #     self.predictors[i]['rules'][new_index] = {}
 
-            pixlen_rule = ''
-            fol_rule = ''
-            closeness_rule = ''
-            intersection_rule = ''
+        #     pixlen_rule = ''
+        #     fol_rule = ''
+        #     closeness_rule = ''
+        #     intersection_rule = ''
 
-            if pixlen - pixlen_predictor < -20:
-                pixlen_rule = 'shorter'
-            elif pixlen - pixlen_predictor > 20:
-                pixlen_rule = 'longer'
-            else:
-                pixlen_rule = 'even'
+        #     if pixlen - pixlen_predictor < -20:
+        #         pixlen_rule = 'shorter'
+        #     elif pixlen - pixlen_predictor > 20:
+        #         pixlen_rule = 'longer'
+        #     else:
+        #         pixlen_rule = 'even'
 
-            if foly - foly_predictor <= 0:
-                fol_rule = 'above'
-            elif foly - foly_predictor > 0:
-                fol_rule = 'below'
-
-
-            if np.abs(foly - foly_predictor) < 30 :
-                closeness_rule = 'near'
-            else:
-                closeness_rule = 'far'
+        #     if foly - foly_predictor <= 0:
+        #         fol_rule = 'above'
+        #     elif foly - foly_predictor > 0:
+        #         fol_rule = 'below'
 
 
-            if intersection_dist < 30:
-                intersection_rule = 'intersected'
-            else:
-                intersection_rule = 'not intersected'
+        #     if np.abs(foly - foly_predictor) < 30 :
+        #         closeness_rule = 'near'
+        #     else:
+        #         closeness_rule = 'far'
+
+
+        #     if intersection_dist < 30:
+        #         intersection_rule = 'intersected'
+        #     else:
+        #         intersection_rule = 'not intersected'
 
 
 
-            rule_dict = {
-                'length_rule': pixlen_rule,
-                'fol_rule' : fol_rule, 
-                'closeness_rule' : closeness_rule,
-                'intersection_rule': intersection_rule
-            }
-            print "{}->{} \t rules: {}".format(new_index, i, rule_dict) 
+        #     rule_dict = {
+        #         'length_rule': pixlen_rule,
+        #         'fol_rule' : fol_rule, 
+        #         'closeness_rule' : closeness_rule,
+        #         'intersection_rule': intersection_rule
+        #     }
+        #     print "{}->{} \t rules: {}".format(new_index, i, rule_dict) 
 
-            rules[i] = FollicleConstraint(rule_dict)
+        #     rules[i] = FollicleConstraint(rule_dict)
 
-            opp_rules = {}
+        #     opp_rules = {}
 
-            if pixlen_rule == 'shorter':
-                opp_rules['length_rule'] = 'longer'
-            elif pixlen_rule == 'longer':
-                opp_rules['length_rule'] = 'shorter'
-            else:
-                opp_rules['length_rule'] = 'even'
+        #     if pixlen_rule == 'shorter':
+        #         opp_rules['length_rule'] = 'longer'
+        #     elif pixlen_rule == 'longer':
+        #         opp_rules['length_rule'] = 'shorter'
+        #     else:
+        #         opp_rules['length_rule'] = 'even'
 
-            if fol_rule == 'above':
-                opp_rules['fol_rule'] = 'below'
-            elif fol_rule == 'below':
-                opp_rules['fol_rule'] = 'above'
-
-
-            if closeness_rule == 'near':
-                opp_rules['closeness_rule'] = 'far'
-            else:
-                opp_rules['closeness_rule'] = 'near'
-
-            opp_rules['intersection_rule'] = intersection_rule
+        #     if fol_rule == 'above':
+        #         opp_rules['fol_rule'] = 'below'
+        #     elif fol_rule == 'below':
+        #         opp_rules['fol_rule'] = 'above'
 
 
-            self.predictors[i]['rules'][new_index] = FollicleConstraint(opp_rules)
+        #     if closeness_rule == 'near':
+        #         opp_rules['closeness_rule'] = 'far'
+        #     else:
+        #         opp_rules['closeness_rule'] = 'near'
+
+        #     opp_rules['intersection_rule'] = intersection_rule
+
+
+        #     self.predictors[i]['rules'][new_index] = FollicleConstraint(opp_rules)
 
 
         self.predictors.append(
@@ -726,11 +727,105 @@ class KalmanTracker(object):
           }
         )
 
+        self.update_constraints()
+
 
         self.strikes.append(0)
         return new_index
 
         # self.current_predictor_label += 1
+
+    def update_constraints(self):
+        for i, predictor1 in enumerate(self.predictors):
+            x1 = predictor1['predictor'].x
+            tipx, tipy, folx, foly, pixlen = x1[0], x1[1], x1[2], x1[3], x1[4]
+
+            j = i + 1
+            while j < len(self.predictors):  
+                predictor2 = self.predictors[j]
+
+                x2 = predictor2['predictor'].x
+
+                tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x2[0], x2[1], x2[2], x2[3], x2[4]
+
+                # intersection = seg_intersect([folx, foly], [tipx, tipy], [folx_predictor, foly_predictor], [tipx_predictor, tipy_predictor])
+                # intersection_dist = np.linalg.norm(intersection - np.array([folx, foly]))
+                _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
+
+                intersect = False
+                if dist_between_segments < 5:
+                    intersect = True
+
+
+                pixlen_rule = ''
+                fol_rule = ''
+                closeness_rule = ''
+                intersection_rule = ''
+
+                if pixlen - pixlen_predictor < -20:
+                    pixlen_rule = 'shorter'
+                elif pixlen - pixlen_predictor > 20:
+                    pixlen_rule = 'longer'
+                else:
+                    pixlen_rule = 'even'
+
+                if foly - foly_predictor <= 0:
+                    fol_rule = 'above'
+                elif foly - foly_predictor > 0:
+                    fol_rule = 'below'
+
+
+                if np.abs(foly - foly_predictor) < 30 :
+                    closeness_rule = 'near'
+                else:
+                    closeness_rule = 'far'
+
+
+                if intersect:
+                    intersection_rule = 'true'
+                else:
+                    intersection_rule = 'false'
+
+
+
+                rules = {
+                    'length_rule': pixlen_rule,
+                    'fol_rule' : fol_rule, 
+                    'closeness_rule' : closeness_rule,
+                    'intersection_rule': intersection_rule
+                }
+                print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
+
+
+                opp_rules = {}
+
+                if pixlen_rule == 'shorter':
+                    opp_rules['length_rule'] = 'longer'
+                elif pixlen_rule == 'longer':
+                    opp_rules['length_rule'] = 'shorter'
+                else:
+                    opp_rules['length_rule'] = 'even'
+
+                if fol_rule == 'above':
+                    opp_rules['fol_rule'] = 'below'
+                elif fol_rule == 'below':
+                    opp_rules['fol_rule'] = 'above'
+
+
+                if closeness_rule == 'near':
+                    opp_rules['closeness_rule'] = 'far'
+                else:
+                    opp_rules['closeness_rule'] = 'near'
+
+                opp_rules['intersection_rule'] = intersection_rule
+
+
+                self.predictors[i]['rules'][j] = FollicleConstraint(rules)
+                self.predictors[j]['rules'][i] = FollicleConstraint(opp_rules)
+
+                j += 1
+
+    
 
     def cumulative_log_likelihood(self, labels, orders, observation_count):
         rankings = self.rankings

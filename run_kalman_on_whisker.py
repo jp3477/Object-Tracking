@@ -25,13 +25,13 @@ output_filename = args.output
 
 #State is [tipx, tipy, pixlen]
 #Measurement is [tipx, tipy]
-dim_x = 4
+dim_x = 5
 dim_z = 2
 
 
-P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1])
+P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1, 0.1])
 R = np.eye(dim_z) * np.array([0.1, 0.1])
-Q = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1])
+Q = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1, 0.1])
 
 F = np.eye(dim_x)
 H = np.array([
@@ -41,7 +41,7 @@ H = np.array([
 
 dt = 200 ** -1
 
-tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=False)
+tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=True, max_strikes=50)
 whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange']
 
 
@@ -75,15 +75,14 @@ for frame, observations in data_filtered:
     # observations = observations.sort_values('fol_y', ascending=True)
     indices = observations.index.values
     # observations['rank'] = observations['fol_y'].rank(ascending=False)
-    mean_foly = observations['fol_y'].mean()
-    mean_folx = observations['fol_x'].mean()
+
     for j, observation in observations.iterrows():
         pixlen, tipx, tipy, folx, foly = observation.length, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y
 
         z = np.array([tipx, tipy])
 
         x0 = np.array(
-            [tipx, tipy, foly, pixlen]
+            [tipx, tipy, folx, foly, pixlen]
         )
 
         observation_dicts.append({

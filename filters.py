@@ -257,6 +257,7 @@ class KalmanTracker(object):
         used_indices = []
         
         exclusion_count = 0
+        exclusion_indices = []
 
         for i, observation_dict in enumerate(observations):
             cost_list = np.zeros(len(self.predictors))
@@ -267,7 +268,7 @@ class KalmanTracker(object):
 
 
             for j, predictor in enumerate(self.predictors):
-                if j not in prediction_indices:
+                if j not in prediction_indices and j not in exclusion_indices:
                     z = observation_dict['z']
                     x, P = predictor['predictor'].get_prediction()
                     prediction = np.dot(predictor['predictor'].H, x)
@@ -293,9 +294,7 @@ class KalmanTracker(object):
                         # intersection = seg_intersect([x_obs_folx, x_obs_foly], [x_obs_tipx, x_obs_tipy], [x_other_folx, x_other_foly], [x_other_tipx, x_other_tipy])
                         # intersection_dist = np.linalg.norm(intersection - np.array([x_obs_folx, x_obs_foly]))
                         _, _, dist_between_segments = closestDistanceBetweenLines([x_obs_folx, x_obs_foly, 0], [x_obs_tipx, x_obs_tipy, 0], [x_other_folx, x_other_foly, 0], [x_other_tipx, x_other_tipy, 0], clampAll=True)
-                        intersect = False
-                        if dist_between_segments < 5:
-                            intersect = True
+
 
                         # length_diff = x_obs[3] - x_other[3]
                         fol_diff = x_obs[3] - x_other[3]
@@ -311,7 +310,7 @@ class KalmanTracker(object):
                         congruity = constraints.compute_congruity(
                             {
                                 'fol_diff': fol_diff,
-                                'intersected': intersect
+                                'overlap': dist_between_segments
                                 # 'closeness': abs_fol_diff,
                             }
                         )
@@ -327,19 +326,21 @@ class KalmanTracker(object):
                     # cost = dist
                     # cost = likelihood ** -1
 
-                    cost = 100 ** (-1 * np.log(likelihood) + 1)
+                    # cost = 100 ** (-1 * np.log(likelihood) + 1)
+                    cost = -1 * np.log(likelihood) + 1
                     # print "dist: {}\t cost: {}\t likelihood: {}".format(dist, cost, likelihood)
                     cost_list[j] = cost
                     dist_list[j] = dist
             if len(self.predictors) - i > 0:
                 prediction_index = np.argmin(cost_list)
-
-                # if cost_list[prediction_index] > 1000 and len(self.current_predictor_labels) - exclusion_count > 0 and dist_list[prediction_index] > 100:
-                #     # print cost_list[prediction_index], dist_list[prediction_index]
-                #     exclusion_count += 1
-                # else:
-                observation_indices.append(i)
-                prediction_indices.append(prediction_index)  
+                # print cost_list[prediction_index]
+                if len(self.current_predictor_labels) - exclusion_count > 0 and dist_list[prediction_index] > 70 and cost_list[prediction_index] > 3 :
+                    # print cost_list[prediction_index], dist_list[prediction_index]
+                    exclusion_count += 1
+                    exclusion_indices.append(j)
+                else:
+                    observation_indices.append(i)
+                    prediction_indices.append(prediction_index)  
 
 
         preds = np.zeros((len(observations), 2))
@@ -752,15 +753,12 @@ class KalmanTracker(object):
                 # intersection_dist = np.linalg.norm(intersection - np.array([folx, foly]))
                 _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
 
-                intersect = False
-                if dist_between_segments < 5:
-                    intersect = True
 
 
                 pixlen_rule = ''
                 fol_rule = ''
                 closeness_rule = ''
-                intersection_rule = ''
+                overlap_rule = ''
 
                 if pixlen - pixlen_predictor < -20:
                     pixlen_rule = 'shorter'
@@ -781,10 +779,10 @@ class KalmanTracker(object):
                     closeness_rule = 'far'
 
 
-                if intersect:
-                    intersection_rule = 'true'
+                if dist_between_segments < 5:
+                    overlap_rule = 'true'
                 else:
-                    intersection_rule = 'false'
+                    overlap_rule = 'false'
 
 
 
@@ -792,7 +790,7 @@ class KalmanTracker(object):
                     'length_rule': pixlen_rule,
                     'fol_rule' : fol_rule, 
                     'closeness_rule' : closeness_rule,
-                    'intersection_rule': intersection_rule
+                    'overlap_rule': overlap_rule
                 }
                 print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
 
@@ -817,7 +815,7 @@ class KalmanTracker(object):
                 else:
                     opp_rules['closeness_rule'] = 'near'
 
-                opp_rules['intersection_rule'] = intersection_rule
+                opp_rules['overlap_rule'] = overlap_rule
 
 
                 self.predictors[i]['rules'][j] = FollicleConstraint(rules)

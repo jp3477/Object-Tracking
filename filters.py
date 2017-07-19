@@ -232,26 +232,24 @@ class KalmanTracker(object):
     def detect2(self, observations):
 
         #Remove a predictor if it has had too many erroneous walks
-        current_predictors = self.predictors
-        keep_indices = []
-        filtered_predictors = []
-        filtered_strikes = []
-        for i, strikes in enumerate(self.strikes):
-            if strikes < self.max_strikes:
-                keep_indices.append(i)
-            else:
-                self.current_predictor_labels.append(current_predictors[i]['label'])
+        # current_predictors = self.predictors
+        # keep_indices = []
+        # filtered_predictors = []
+        # filtered_strikes = []
+        # for i, strikes in enumerate(self.strikes):
+        #     if strikes < self.max_strikes:
+        #         keep_indices.append(i)
+        #     else:
+        #         self.current_predictor_labels.append(current_predictors[i]['label'])
 
 
-        for i in keep_indices:
-            filtered_predictors.append(self.predictors[i])
-            filtered_strikes.append(self.strikes[i])
+        # for i in keep_indices:
+        #     filtered_predictors.append(self.predictors[i])
+        #     filtered_strikes.append(self.strikes[i])
 
-        self.predictors = filtered_predictors
-        self.strikes = filtered_strikes
+        # self.predictors = filtered_predictors
+        # self.strikes = filtered_strikes
 
-        observations_cp = observations
-        predictors_cp = self.predictors
 
         observation_indices, prediction_indices = [], []
         used_indices = []
@@ -273,6 +271,7 @@ class KalmanTracker(object):
                     x, P = predictor['predictor'].get_prediction()
                     prediction = np.dot(predictor['predictor'].H, x)
                     dist = np.linalg.norm(prediction - z)
+                    # dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(R))
 
                     likelihood = 1
 
@@ -334,13 +333,13 @@ class KalmanTracker(object):
             if len(self.predictors) - i > 0:
                 prediction_index = np.argmin(cost_list)
                 # print cost_list[prediction_index]
-                if len(self.current_predictor_labels) - exclusion_count > 0 and dist_list[prediction_index] > 70 and cost_list[prediction_index] > 3 :
-                    # print cost_list[prediction_index], dist_list[prediction_index]
-                    exclusion_count += 1
-                    exclusion_indices.append(j)
-                else:
-                    observation_indices.append(i)
-                    prediction_indices.append(prediction_index)  
+                # if len(self.current_predictor_labels) - exclusion_count > 0 and dist_list[prediction_index] > 70 and cost_list[prediction_index] > 3 :
+                #     # print cost_list[prediction_index], dist_list[prediction_index]
+                #     exclusion_count += 1
+                #     exclusion_indices.append(j)
+                # else:
+                observation_indices.append(i)
+                prediction_indices.append(prediction_index)  
 
 
         preds = np.zeros((len(observations), 2))
@@ -382,6 +381,7 @@ class KalmanTracker(object):
                 new_prediction_indices[i] = new_prediction_index
 
             prediction_indices = new_prediction_indices.astype(int)
+            self.update_constraints2(observations, prediction_indices)
 
         if len(self.predictors) > len(observations):
             mask = np.in1d(np.arange(len(self.predictors)), prediction_indices)
@@ -728,13 +728,100 @@ class KalmanTracker(object):
           }
         )
 
-        self.update_constraints()
+        # self.update_constraints()
 
 
         self.strikes.append(0)
         return new_index
 
         # self.current_predictor_label += 1
+
+    def update_constraints2(self, observations, prediction_indices):
+        assert len(observations) == len(prediction_indices)
+
+        for i, obs1 in enumerate(observations):
+            x1 = obs1['x']
+            tipx, tipy, folx, foly, pixlen = x1[0], x1[1], x1[2], x1[3], x1[4]
+
+            j = i + 1
+            while j < len(observations):
+                obs2 = observations[j]
+
+                x2 = obs2['x']
+                tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x2[0], x2[1], x2[2], x2[3], x2[4]
+                _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
+
+                pixlen_rule = ''
+                fol_rule = ''
+                closeness_rule = ''
+                overlap_rule = ''
+
+                if pixlen - pixlen_predictor < -20:
+                    pixlen_rule = 'shorter'
+                elif pixlen - pixlen_predictor > 20:
+                    pixlen_rule = 'longer'
+                else:
+                    pixlen_rule = 'even'
+
+                if foly - foly_predictor <= 0:
+                    fol_rule = 'above'
+                elif foly - foly_predictor > 0:
+                    fol_rule = 'below'
+
+
+                if np.abs(foly - foly_predictor) < 30 :
+                    closeness_rule = 'near'
+                else:
+                    closeness_rule = 'far'
+
+
+                if dist_between_segments < 5:
+                    overlap_rule = 'true'
+                else:
+                    overlap_rule = 'false'
+
+
+
+                rules = {
+                    'length_rule': pixlen_rule,
+                    'fol_rule' : fol_rule, 
+                    'closeness_rule' : closeness_rule,
+                    'overlap_rule': overlap_rule
+                }
+                # print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
+
+
+                opp_rules = {}
+
+                if pixlen_rule == 'shorter':
+                    opp_rules['length_rule'] = 'longer'
+                elif pixlen_rule == 'longer':
+                    opp_rules['length_rule'] = 'shorter'
+                else:
+                    opp_rules['length_rule'] = 'even'
+
+                if fol_rule == 'above':
+                    opp_rules['fol_rule'] = 'below'
+                elif fol_rule == 'below':
+                    opp_rules['fol_rule'] = 'above'
+
+
+                if closeness_rule == 'near':
+                    opp_rules['closeness_rule'] = 'far'
+                else:
+                    opp_rules['closeness_rule'] = 'near'
+
+                opp_rules['overlap_rule'] = overlap_rule
+
+                prediction_index1 = prediction_indices[i]
+                prediction_index2 = prediction_indices[j]
+
+                self.predictors[prediction_index1]['rules'][j] = FollicleConstraint(rules)
+                self.predictors[prediction_index2]['rules'][i] = FollicleConstraint(opp_rules)
+
+                j += 1
+
+
 
     def update_constraints(self):
         for i, predictor1 in enumerate(self.predictors):
@@ -792,7 +879,7 @@ class KalmanTracker(object):
                     'closeness_rule' : closeness_rule,
                     'overlap_rule': overlap_rule
                 }
-#                print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
+                # print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
 
 
                 opp_rules = {}

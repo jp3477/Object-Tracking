@@ -792,7 +792,7 @@ class KalmanTracker(object):
                     'closeness_rule' : closeness_rule,
                     'overlap_rule': overlap_rule
                 }
-                print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
+#                print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
 
 
                 opp_rules = {}

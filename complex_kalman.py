@@ -1,3 +1,6 @@
+#import matplotlib
+#matplotlib.use('Agg')
+
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas
@@ -37,15 +40,16 @@ H = np.array([
 
 dt = 200 ** -1
 
-tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=True, max_strikes=50)
-whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange']
+tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=False, max_object_count=12, max_strikes=50)
+whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange', 'navy', 'turquoise', 'silver', 'yellowgreen']
 predictions = {}
 
 
-
-data = pandas.read_pickle('15000_frames_revised.pickle')
+print "loading data"
+data = pandas.read_pickle('161215_KM91_data')
+#data = pandas.read_pickle('15000_frames_revised.pickle')
 data['color_group'] = 0
-data = data[(data.frame > 11000) & (data.frame < 12000) ]
+data = data[(data.frame > 0) & (data.frame < 50) ]
 
 oof_y_bonus = 200
 oof_y_thresh = 5
@@ -53,8 +57,8 @@ data.loc[data.tip_y < oof_y_thresh, 'pixlen'] += oof_y_bonus
 data.loc[data.tip_y < oof_y_thresh, 'length'] += oof_y_bonus
 
 data_filtered = data[data.pixlen > 20].groupby('frame')
-angles = data_filtered['angle'].apply(lambda x: x.mean()) * np.pi / 180
-diffs = angles.diff()
+#angles = data_filtered['angle'].apply(lambda x: x.mean()) * np.pi / 180
+#diffs = angles.diff()
 
 
 
@@ -68,12 +72,12 @@ for frame, observations in bar(data_filtered):
     # observations = observations.sort_values('fol_y', ascending=True)
     indices = observations.index.values
     # observations['rank'] = observations['fol_y'].rank(ascending=False)
-    mean_foly = observations['fol_y'].mean()
-    mean_folx = observations['fol_x'].mean()
+    #mean_foly = observations['fol_y'].mean()
+    #mean_folx = observations['fol_x'].mean()
     for j, observation in observations.iterrows():
         pixlen, tipx, tipy, folx, foly = observation.length, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y
 
-        angle = -1 * arctan(tipy - mean_foly, tipx - mean_folx)
+        #angle = -1 * arctan(tipy - mean_foly, tipx - mean_folx)
         z = np.array([tipx, tipy])
 
         x0 = np.array(
@@ -87,13 +91,13 @@ for frame, observations in bar(data_filtered):
         })
 
 
-    labels, preds = tracker.detect2(observation_dicts)
-    predictions[frame] = dict([(labels[i], preds[i]) for i in range(len(preds))])
+    labels = tracker.detect2(observation_dicts)
+    #predictions[frame] = dict([(labels[i], preds[i]) for i in range(len(preds))])
     data.loc[indices, 'color_group'] = labels
 
 
 
-subset = data[ (data.frame > 10000) & (data.frame < 15000)].groupby('frame')
+subset = data[ (data.frame > 0) & (data.frame < 15000)].groupby('frame')
 
 plt.ion()
 for frame, whiskers in subset:
@@ -104,13 +108,13 @@ for frame, whiskers in subset:
     plt.gca().invert_yaxis()
     plt.title('Frame: {}'.format(frame))
 
-    preds = predictions[frame]
+#    preds = predictions[frame]
 
-    for key in preds.keys():
-        z = preds[key]
-        color = whisker_colors[int(key)]
-        tipx, tipy  = z[0], z[1]
-        plt.plot(tipx, tipy, marker='o', color=color, markersize=15)
+#    for key in preds.keys():
+#        z = preds[key]
+#        color = whisker_colors[int(key)]
+#        tipx, tipy  = z[0], z[1]
+#        plt.plot(tipx, tipy, marker='o', color=color, markersize=15)
         # plt.plot(folx, foly, marker='o', color=color, markersize=15)
 
 
@@ -122,9 +126,9 @@ for frame, whiskers in subset:
 
         plt.plot([folx, tipx], [foly, tipy], color=color)
 
-    plt.figtext(0.4, 0.3, angles[frame] * 180 / np.pi)
+    #plt.figtext(0.4, 0.3, angles[frame] * 180 / np.pi)
 
-    plt.pause(0.001)
+    plt.pause(0.00001)
 
 
 

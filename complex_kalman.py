@@ -3,18 +3,9 @@ import matplotlib.pyplot as plt
 import pandas
 import pdb
 from filters import UnscentedKalmanTracker, KalmanTracker
+import progressbar
 
 
-
-def state_function(state, dt):
-    pixlen, rank = state[0], state[1]
-
-    return np.array([pixlen, rank])
-
-def measurement_function(state):
-    pixlen, rank = state[0], state[1]
-
-    return np.array([pixlen, rank])
 
 def arctan(y, x):
     angle = np.arctan2(y, x)
@@ -54,7 +45,7 @@ predictions = {}
 
 data = pandas.read_pickle('15000_frames_revised.pickle')
 data['color_group'] = 0
-data = data[(data.frame > 10000) & (data.frame < 10500) ]
+data = data[(data.frame > 11000) & (data.frame < 12000) ]
 
 oof_y_bonus = 200
 oof_y_thresh = 5
@@ -69,13 +60,8 @@ diffs = angles.diff()
 
 
 first_frame = sorted(data_filtered.groups.keys())[0]
-for frame, observations in data_filtered:
-
-    if frame == first_frame:
-        continue
-    if frame % 100 == 0:
-        print frame
-    
+bar = progressbar.ProgressBar()
+for frame, observations in bar(data_filtered):
 
     observation_dicts = []
     observations = observations.sort_values('length', ascending=False)
@@ -111,8 +97,7 @@ subset = data[ (data.frame > 10000) & (data.frame < 15000)].groupby('frame')
 
 plt.ion()
 for frame, whiskers in subset:
-    if frame == 10001:
-        continue
+
     plt.clf()
     plt.xlim(0, 640)
     plt.ylim(0, 640)

@@ -106,15 +106,15 @@ class FollicleConstraint(Constraint):
         length_diff['even'] = fuzz.trimf(length_diff.universe, [-40, 0, 40])
         length_diff['longer'] = fuzz.trapmf(length_diff.universe, [0, 40, 600, 600])
 
-        lower_fol_limit, upper_fol_limit = -300, 300
+        lower_fol_limit, upper_fol_limit = - (300 ** 2), 300 ** 2
 
         fol_diff = ctrl.Antecedent(np.linspace(lower_fol_limit, upper_fol_limit, 1000), 'fol_diff')
         # fol_diff['above'] = fuzz.trapmf(fol_diff.universe, [lower_fol_limit, lower_fol_limit, -5, 0])
         # fol_diff['even'] = fuzz.trimf(fol_diff.universe, [-5, 0, 5])
         # fol_diff['below'] = fuzz.trapmf(fol_diff.universe, [0, 5, upper_fol_limit, upper_fol_limit])
 
-        fol_diff['above'] = fuzz.trapmf(fol_diff.universe, [lower_fol_limit, lower_fol_limit, -5, 5])
-        fol_diff['below'] = fuzz.trapmf(fol_diff.universe, [-5, 5, upper_fol_limit, upper_fol_limit])
+        fol_diff['above'] = fuzz.trapmf(fol_diff.universe, [lower_fol_limit, lower_fol_limit, -2000, 2000])
+        fol_diff['below'] = fuzz.trapmf(fol_diff.universe, [-2000, 2000, upper_fol_limit, upper_fol_limit])
 
         overlap = ctrl.Antecedent(np.arange(0, 600), 'overlap')
         # intersection_dist['intersected'] = fuzz.trapmf(intersection_dist.universe, [0, 0, 10, 30])
@@ -130,60 +130,20 @@ class FollicleConstraint(Constraint):
         length_rule, fol_rule, closeness_rule, overlap_rule = rule_dict['length_rule'], rule_dict['fol_rule'], rule_dict['closeness_rule'], rule_dict['overlap_rule']
 
 
-        # rule1 = ctrl.Rule(
-        #     fol_diff[fol_rule] &
-        #     closeness[closeness_rule],
-        #     congruity['great']
-        # )
-
-        # rule2 = ctrl.Rule(
-        #     closeness[closeness_rule] |
-        #     (fol_diff[fol_rule] & length_diff[length_rule]),
-        #     congruity['great']
-        # )
-
-        # rule3 = ctrl.Rule(
-        #     ~fol_diff[fol_rule] |
-        #     ~length_diff[length_rule],
-        #     congruity['great']
-        # )
-
-        # rule1 = ctrl.Rule(
-        #     length_diff[length_rule] &
-        #     fol_diff[fol_rule],
-        #     congruity['great']
-        # )
-
-        # rule2 = ctrl.Rule(
-        #     length_diff[length_rule] |
-        #     (fol_diff[fol_rule] & closeness[closeness_rule]),
-        #     congruity['average']
-        # )
-
-        # rule3 = ctrl.Rule(
-        #     ~fol_diff[fol_rule] |
-        #     ~closeness[closeness_rule],
-        #     congruity['awful']
-        # )
-
         rule1 = ctrl.Rule(
-            ~overlap[overlap_rule],
+            ~fol_diff[fol_rule],
             congruity['awful']
         )
 
         rule2 = ctrl.Rule(
-            fol_diff[fol_rule],
+            overlap[overlap_rule],
             congruity['great']
         )
+
         rule3 = ctrl.Rule(
-            ~fol_diff[fol_rule],
-            congruity['average']
+            ~overlap[overlap_rule],
+            congruity['great']
         )
-
-
-
-
-
 
         self.congruity_control = ctrl.ControlSystem([rule1, rule2, rule3])
 

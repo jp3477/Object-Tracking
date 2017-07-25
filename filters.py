@@ -7,6 +7,8 @@ from filterpy.common import Q_discrete_white_noise
 from constraints import AngleConstraint, FollicleConstraint
 from intersect import closestDistanceBetweenLines
 
+import scipy.integrate as integrate
+
 # from HungarianMurty import k_best_costs
 
 
@@ -294,6 +296,9 @@ class KalmanTracker(object):
                         # intersection_dist = np.linalg.norm(intersection - np.array([x_obs_folx, x_obs_foly]))
                         _, _, dist_between_segments = closestDistanceBetweenLines([x_obs_folx, x_obs_foly, 0], [x_obs_tipx, x_obs_tipy, 0], [x_other_folx, x_other_foly, 0], [x_other_tipx, x_other_tipy, 0], clampAll=True)
 
+                        area = area_between((x_obs_folx, x_obs_foly), (x_obs_tipx, x_obs_tipy), (x_other_folx, x_other_foly), (x_other_tipx, x_other_tipy))
+
+
 
                         # length_diff = x_obs[3] - x_other[3]
                         fol_diff = x_obs[3] - x_other[3]
@@ -308,7 +313,7 @@ class KalmanTracker(object):
                         #     }
                         congruity = constraints.compute_congruity(
                             {
-                                'fol_diff': fol_diff,
+                                'fol_diff': area,
                                 'overlap': dist_between_segments
                                 # 'closeness': abs_fol_diff,
                             }
@@ -325,8 +330,8 @@ class KalmanTracker(object):
                     # cost = dist
                     # cost = likelihood ** -1
 
-                    # cost = 100 ** (-1 * np.log(likelihood) + 1)
-                    cost = -1 * np.log(likelihood) + 1
+                    cost = 100 ** (-1 * np.log(likelihood) + 1) + dist
+                    # cost = -1 * np.log(likelihood) + 1
                     # print "dist: {}\t cost: {}\t likelihood: {}".format(dist, cost, likelihood)
                     cost_list[j] = cost
                     dist_list[j] = dist
@@ -750,6 +755,8 @@ class KalmanTracker(object):
                 x2 = obs2['x']
                 tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x2[0], x2[1], x2[2], x2[3], x2[4]
                 _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
+                area = area_between((folx, foly), (tipx, tipy), (folx_predictor, foly_predictor), (tipx_predictor, tipy_predictor))
+
 
                 pixlen_rule = ''
                 fol_rule = ''
@@ -789,6 +796,7 @@ class KalmanTracker(object):
                     'overlap_rule': overlap_rule
                 }
                 # print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
+                print "{}->{} \t rules: {} \t segment_area: {}".format(j, i, rules, area) 
 
 
                 opp_rules = {}
@@ -980,7 +988,14 @@ def logpmf(values, distributions, max_object_count):
 
     return total
 
+def area_between(f1, t1, f2, t2):
+    m1 = (t1[1] - f1[1]) / (t1[0] - f1[0])
+    m2 = (t2[1] - f2[1]) / (t2[0] - f2[0])
 
+    fn = lambda x: (m2 * (x - t2[0]) + t2[1]) - (m1 * (x - t1[0]) + t1[1])
 
+    result = integrate.quad(fn, t1[0], f1[0])
+
+    return result[0]
 
 

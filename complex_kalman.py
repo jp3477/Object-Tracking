@@ -24,18 +24,18 @@ def arctan(y, x):
 
 #State is [tipx, tipy, pixlen]
 #Measurement is [tipx, tipy]
-dim_x = 5
+dim_x = 6
 dim_z = 2
 
 
-P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1, 0.1])
+P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 R = np.eye(dim_z) * np.array([0.1, 0.1])
-Q = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1, 0.1])
+Q = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 
 F = np.eye(dim_x)
 H = np.array([
-    [ 1, 0, 0, 0, 0],
-    [ 0, 1, 0, 0, 0],
+    [ 1, 0, 0, 0, 0, 0],
+    [ 0, 1, 0, 0, 0, 0],
 ])
 
 dt = 200 ** -1
@@ -49,7 +49,7 @@ print "loading data"
 data = pandas.read_pickle('161215_KM91_data')
 #data = pandas.read_pickle('15000_frames_revised.pickle')
 data['color_group'] = 0
-data = data[(data.frame > 0) & (data.frame < 50) ]
+data = data[(data.frame > 0) & (data.frame < 500) ]
 
 oof_y_bonus = 200
 oof_y_thresh = 5
@@ -71,17 +71,18 @@ for frame, observations in bar(data_filtered):
     observations = observations.sort_values('length', ascending=False)
     # observations = observations.sort_values('fol_y', ascending=True)
     indices = observations.index.values
-    # observations['rank'] = observations['fol_y'].rank(ascending=False)
+    observations['rank'] = observations['fol_y'].rank(ascending=False)
     #mean_foly = observations['fol_y'].mean()
     #mean_folx = observations['fol_x'].mean()
     for j, observation in observations.iterrows():
         pixlen, tipx, tipy, folx, foly = observation.length, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y
 
+        rank = observation['rank']
         #angle = -1 * arctan(tipy - mean_foly, tipx - mean_folx)
         z = np.array([tipx, tipy])
 
         x0 = np.array(
-            [tipx, tipy, folx, foly, pixlen]
+            [tipx, tipy, folx, foly, pixlen, rank]
         )
 
         observation_dicts.append({

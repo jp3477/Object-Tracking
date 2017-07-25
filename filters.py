@@ -294,10 +294,10 @@ class KalmanTracker(object):
 
                         # intersection = seg_intersect([x_obs_folx, x_obs_foly], [x_obs_tipx, x_obs_tipy], [x_other_folx, x_other_foly], [x_other_tipx, x_other_tipy])
                         # intersection_dist = np.linalg.norm(intersection - np.array([x_obs_folx, x_obs_foly]))
-                        _, _, dist_between_segments = closestDistanceBetweenLines([x_obs_folx, x_obs_foly, 0], [x_obs_tipx, x_obs_tipy, 0], [x_other_folx, x_other_foly, 0], [x_other_tipx, x_other_tipy, 0], clampAll=True)
+                        # _, _, dist_between_segments = closestDistanceBetweenLines([x_obs_folx, x_obs_foly, 0], [x_obs_tipx, x_obs_tipy, 0], [x_other_folx, x_other_foly, 0], [x_other_tipx, x_other_tipy, 0], clampAll=True)
 
                         area = area_between((x_obs_folx, x_obs_foly), (x_obs_tipx, x_obs_tipy), (x_other_folx, x_other_foly), (x_other_tipx, x_other_tipy))
-
+                        closeness = np.abs(x_obs[5] - x_other[5])
 
 
                         # length_diff = x_obs[3] - x_other[3]
@@ -314,7 +314,8 @@ class KalmanTracker(object):
                         congruity = constraints.compute_congruity(
                             {
                                 'fol_diff': area,
-                                'overlap': dist_between_segments
+                                # 'overlap': dist_between_segments,
+                                'closeness': closeness,
                                 # 'closeness': abs_fol_diff,
                             }
                         )
@@ -323,6 +324,7 @@ class KalmanTracker(object):
                             # print "{}->{}\tcongruity: {}".format(self.predictors[j]['label'], self.predictors[prediction_index]['label'], congruity)
 
                         likelihood *= congruity
+                        # print congruity
 
                     # print "{}%".format((likelihood ** -1 / dist)*100 )
                     # cost = dist * likelihood ** -1
@@ -330,8 +332,8 @@ class KalmanTracker(object):
                     # cost = dist
                     # cost = likelihood ** -1
 
-                    cost = 100 ** (-1 * np.log(likelihood) + 1) + dist
-                    # cost = -1 * np.log(likelihood) + 1
+                    # cost = 100 ** (-1 * np.log(likelihood) + 1) + dist
+                    cost = -1 * np.log(likelihood) + 1
                     # print "dist: {}\t cost: {}\t likelihood: {}".format(dist, cost, likelihood)
                     cost_list[j] = cost
                     dist_list[j] = dist
@@ -747,6 +749,7 @@ class KalmanTracker(object):
         for i, obs1 in enumerate(observations):
             x1 = obs1['x']
             tipx, tipy, folx, foly, pixlen = x1[0], x1[1], x1[2], x1[3], x1[4]
+            rank = x1[5]
 
             j = i + 1
             while j < len(observations):
@@ -754,9 +757,11 @@ class KalmanTracker(object):
 
                 x2 = obs2['x']
                 tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x2[0], x2[1], x2[2], x2[3], x2[4]
-                _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
-                area = area_between((folx, foly), (tipx, tipy), (folx_predictor, foly_predictor), (tipx_predictor, tipy_predictor))
+                rank_predictor = x2[5]
 
+                # _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
+                area = area_between((folx, foly), (tipx, tipy), (folx_predictor, foly_predictor), (tipx_predictor, tipy_predictor))
+                closeness = np.abs(rank - rank_predictor)
 
                 pixlen_rule = ''
                 fol_rule = ''
@@ -770,24 +775,24 @@ class KalmanTracker(object):
                 else:
                     pixlen_rule = 'even'
 
-                if foly - foly_predictor <= 0:
+                if area <= 0:
                     fol_rule = 'above'
-                elif foly - foly_predictor > 0:
+                elif area > 0:
                     fol_rule = 'below'
 
 
-                if np.abs(foly - foly_predictor) < 30 :
+                if closeness <= 2 :
                     closeness_rule = 'near'
                 else:
                     closeness_rule = 'far'
 
 
-                if dist_between_segments < 5:
-                    overlap_rule = 'true'
-                else:
-                    overlap_rule = 'false'
+                # if dist_between_segments < 5:
+                #     overlap_rule = 'true'
+                # else:
+                #     overlap_rule = 'false'
 
-
+                closeness_rule = closeness
 
                 rules = {
                     'length_rule': pixlen_rule,
@@ -820,6 +825,7 @@ class KalmanTracker(object):
                     opp_rules['closeness_rule'] = 'near'
 
                 opp_rules['overlap_rule'] = overlap_rule
+                opp_rules['closeness_rule'] = closeness
 
                 prediction_index1 = prediction_indices[i]
                 prediction_index2 = prediction_indices[j]
@@ -835,7 +841,7 @@ class KalmanTracker(object):
         for i, predictor1 in enumerate(self.predictors):
             x1 = predictor1['predictor'].x
             tipx, tipy, folx, foly, pixlen = x1[0], x1[1], x1[2], x1[3], x1[4]
-
+            rank = x1[5]
             j = i + 1
             while j < len(self.predictors):  
                 predictor2 = self.predictors[j]
@@ -843,12 +849,12 @@ class KalmanTracker(object):
                 x2 = predictor2['predictor'].x
 
                 tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x2[0], x2[1], x2[2], x2[3], x2[4]
-
+                rank_predictor = x2[5]
                 # intersection = seg_intersect([folx, foly], [tipx, tipy], [folx_predictor, foly_predictor], [tipx_predictor, tipy_predictor])
                 # intersection_dist = np.linalg.norm(intersection - np.array([folx, foly]))
                 _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
 
-
+                closeness = np.abs(rank - rank_predictor)
 
                 pixlen_rule = ''
                 fol_rule = ''
@@ -868,7 +874,7 @@ class KalmanTracker(object):
                     fol_rule = 'below'
 
 
-                if np.abs(foly - foly_predictor) < 30 :
+                if closeness <= 3 :
                     closeness_rule = 'near'
                 else:
                     closeness_rule = 'far'
@@ -879,7 +885,7 @@ class KalmanTracker(object):
                 else:
                     overlap_rule = 'false'
 
-
+                closeness_rule = closeness
 
                 rules = {
                     'length_rule': pixlen_rule,
@@ -911,6 +917,8 @@ class KalmanTracker(object):
                     opp_rules['closeness_rule'] = 'near'
 
                 opp_rules['overlap_rule'] = overlap_rule
+
+                opp_rules['closeness_rule'] = closeness
 
 
                 self.predictors[i]['rules'][j] = FollicleConstraint(rules)

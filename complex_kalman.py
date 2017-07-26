@@ -1,5 +1,4 @@
-#import matplotlib
-#matplotlib.use('Agg')
+# Example of how to use the Kalman Tracker 
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -22,12 +21,11 @@ def arctan(y, x):
 
 
 
-#State is [tipx, tipy, pixlen]
-#Measurement is [tipx, tipy]
+
 dim_x = 6
 dim_z = 2
 
-
+# Set all covariance errors to very low values
 P0 = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 R = np.eye(dim_z) * np.array([0.1, 0.1])
 Q = np.eye(dim_x) * np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
@@ -38,7 +36,6 @@ H = np.array([
     [ 0, 1, 0, 0, 0, 0],
 ])
 
-dt = 200 ** -1
 
 tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=False, max_object_count=12, max_strikes=50)
 whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange', 'navy', 'turquoise', 'silver', 'yellowgreen']
@@ -46,21 +43,18 @@ predictions = {}
 
 
 print "loading data"
-data = pandas.read_pickle('161215_KM91_data')
-#data = pandas.read_pickle('15000_frames_revised.pickle')
+# data = pandas.read_pickle('161215_KM91_data')
+data = pandas.read_pickle('15000_frames_revised.pickle')
 data['color_group'] = 0
-data = data[(data.frame > 0) & (data.frame < 500) ]
+data = data[(data.frame > 10000) & (data.frame < 10150) ]
 
+#Add an out of frame bonus to account for whiskers disappearing out of frame
 oof_y_bonus = 200
 oof_y_thresh = 5
 data.loc[data.tip_y < oof_y_thresh, 'pixlen'] += oof_y_bonus
 data.loc[data.tip_y < oof_y_thresh, 'length'] += oof_y_bonus
 
 data_filtered = data[data.pixlen > 20].groupby('frame')
-#angles = data_filtered['angle'].apply(lambda x: x.mean()) * np.pi / 180
-#diffs = angles.diff()
-
-
 
 
 first_frame = sorted(data_filtered.groups.keys())[0]
@@ -69,11 +63,10 @@ for frame, observations in bar(data_filtered):
 
     observation_dicts = []
     observations = observations.sort_values('length', ascending=False)
-    # observations = observations.sort_values('fol_y', ascending=True)
     indices = observations.index.values
+
     observations['rank'] = observations['fol_y'].rank(ascending=False)
-    #mean_foly = observations['fol_y'].mean()
-    #mean_folx = observations['fol_x'].mean()
+
     for j, observation in observations.iterrows():
         pixlen, tipx, tipy, folx, foly = observation.length, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y
 
@@ -92,7 +85,7 @@ for frame, observations in bar(data_filtered):
         })
 
 
-    labels = tracker.detect2(observation_dicts)
+    labels = tracker.detect(observation_dicts)
     #predictions[frame] = dict([(labels[i], preds[i]) for i in range(len(preds))])
     data.loc[indices, 'color_group'] = labels
 

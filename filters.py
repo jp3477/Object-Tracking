@@ -3,16 +3,368 @@ from scipy.optimize import linear_sum_assignment
 from scipy import spatial
 from scipy import stats
 from filterpy.kalman import KalmanFilter, UnscentedKalmanFilter, MerweScaledSigmaPoints, unscented_transform, JulierSigmaPoints
-from filterpy.common import Q_discrete_white_noise
 from constraints import AngleConstraint, FollicleConstraint
 from intersect import closestDistanceBetweenLines
 
 import scipy.integrate as integrate
 
-# from HungarianMurty import k_best_costs
+class KalmanTracker(object):
+
+    def __init__(self, P0, F, H, Q, R , max_object_count=8, max_strikes=20, show_predictions=False):
+        """ Uses Kalman Filters and Fuzzy Logic to keep track of observed objects
+
+            P0 : Intial prediction error
+            F : Update matrix
+            H : Measurement matrix
+            Q : Process error covariance
+            H : Measurement error covariance
+            max_object_count : Maximum number of objects to track
+            max_strikes : Number of allowable missing steps until an object's tracker is suspended
+            show_predictions: Should predicted coordinates be returned
+
+        """
+        self.predictors = [] #List of KalmanThreads
+
+        #Labels to assign to objects
+        self.current_predictor_labels = range(max_object_count, 0, -1)
+
+        self.max_strikes = max_strikes
+
+        self.max_object_count = max_object_count
+
+        #List to keep track of tracker strikess
+        self.strikes = []
+
+        self.P0, self.Q, self.R, self.F, self.H = P0, Q, R, F, H
+        self.show_predictions = show_predictions
+
+        #Keep track of step count
+        self.k = 1
 
 
 
+    def detect(self, observations):
+        """ Match observations to existing predictors
+
+            observations :  List of dictionaries with information about a detected observations
+
+
+        """
+
+        #Remove a predictor if it has had too many erroneous walks
+        # current_predictors = self.predictors
+        # keep_indices = []
+        # filtered_predictors = []
+        # filtered_strikes = []
+        # for i, strikes in enumerate(self.strikes):
+        #     if strikes < self.max_strikes:
+        #         keep_indices.append(i)
+        #     else:
+        #         self.current_predictor_labels.append(current_predictors[i]['label'])
+
+
+        # for i in keep_indices:
+        #     filtered_predictors.append(self.predictors[i])
+        #     filtered_strikes.append(self.strikes[i])
+
+        # self.predictors = filtered_predictors
+        # self.strikes = filtered_strikes
+
+
+        #Match observations with trackers
+        observation_indices, prediction_indices = [], []
+        used_indices = []
+        
+        exclusion_count = 0
+        exclusion_indices = []
+
+        for i, observation_dict in enumerate(observations):
+            # Costs of assigning each predictor to the current obvervation
+            # Initialize cost of already matched predictors to infinitiy
+            cost_list = np.zeros(len(self.predictors))
+            cost_list[prediction_indices] = np.inf
+
+            dist_list = np.zeros(len(self.predictors))
+            dist_list[prediction_indices] = np.inf
+
+
+            for j, predictor in enumerate(self.predictors):
+                # Iterate through predictors that have not already been matched
+                if j not in prediction_indices and j not in exclusion_indices:
+
+                    # Use Kalman Filter prediction to find distance to observation
+                    z = observation_dict['z']
+                    x, P = predictor['predictor'].get_prediction()
+                    prediction = np.dot(predictor['predictor'].H, x)
+                    dist = np.linalg.norm(prediction - z)
+                    # dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(R))
+
+                    likelihood = 1
+
+                    # Compare candidate observation to already matched observations to find likelihood
+                    # that predictor matches rules
+                    for k, observation_index in enumerate(observation_indices):
+                        prediction_index = prediction_indices[k]
+
+                        matched_predictor = self.predictors[prediction_index]
+
+                        # Contains rules between two predictors
+                        constraints = matched_predictor['rules'][j]
+
+                        # Define relationships between two observations
+                        x1 = observations[observation_index]['x']
+                        x2 = observation_dict['x']
+
+                        x1_folx, x1_foly = x1[2], x1[3]
+                        x1_tipx, x1_tipy = x1[0], x1[1]
+
+                        x2_folx, x2_foly = x2[2], x2[3]
+                        x2_tipx, x2_tipy = x2[0], x2[1]
+
+                        # intersection = seg_intersect([x_obs_folx, x_obs_foly], [x_obs_tipx, x_obs_tipy], [x_other_folx, x_other_foly], [x_other_tipx, x_other_tipy])
+                        # intersection_dist = np.linalg.norm(intersection - np.array([x_obs_folx, x_obs_foly]))
+                        # _, _, dist_between_segments = closestDistanceBetweenLines([x_obs_folx, x_obs_foly, 0], [x_obs_tipx, x_obs_tipy, 0], [x_other_folx, x_other_foly, 0], [x_other_tipx, x_other_tipy, 0], clampAll=True)
+
+                        area = area_between((x1_folx, x1_foly), (x1_tipx, x1_tipy), (x2_folx, x2_foly), (x2_tipx, x2_tipy))
+                        closeness = np.abs(x1[5] - x1[5])
+
+
+                        # length_diff = x_obs[3] - x_other[3]
+                        fol_diff = x1_foly - x2_foly
+                        # abs_fol_diff = np.abs(fol_diff)
+            
+
+                        # Find congruity or how well the observation relationships match the expected constraints
+                        congruity = constraints.compute_congruity(
+                            {
+                                'fol_diff': area,
+                                # 'overlap': dist_between_segments,
+                                'closeness': closeness,
+                                # 'closeness': abs_fol_diff,
+                            }
+                        )
+
+                        #Aggregate total likelihood based on congruity of this observation with other observations
+                        likelihood *= congruity
+
+                    # Determine cost as some combination of cost and likelihood (might have to be tweaked)
+
+                    # cost = 100 ** (-1 * np.log(likelihood) + 1) * dist
+                    cost = dist + 2 ** (-1 * np.log(likelihood) + 1)
+                    # cost = -1 * np.log(likelihood) + 1
+                    cost_list[j] = cost
+                    dist_list[j] = dist
+            if len(self.predictors) - i > 0:
+                # Choose matched prediction based on lowest cost
+                prediction_index = np.argmin(cost_list)
+                # print cost_list[prediction_index]
+                # if len(self.current_predictor_labels) - exclusion_count > 0 and dist_list[prediction_index] > 70 and cost_list[prediction_index] > 3 :
+                #     # print cost_list[prediction_index], dist_list[prediction_index]
+                #     exclusion_count += 1
+                #     exclusion_indices.append(j)
+                # else:
+                observation_indices.append(i)
+                prediction_indices.append(prediction_index)  
+
+
+        preds = np.zeros((len(observations), 2))
+        for i in range(len(observation_indices)):
+            observation_index = observation_indices[i]
+            prediction_index = prediction_indices[i]
+
+
+
+
+            predictor = self.predictors[prediction_index]['predictor']
+
+
+
+            observation_dict = observations[observation_index]
+            z = observation_dict['z']
+
+            # preds.append(np.dot(predictor.H, predictor.x))
+            if self.show_predictions:
+                prediction = np.dot(predictor.H, predictor.x)# + self.R
+                preds[observation_index, :] = prediction
+
+
+            # Use Kalman filter to update prediction based on the observation
+            self.predictors[prediction_index]['predictor'].R = self.R
+            self.predictors[prediction_index]['predictor'].predict()
+            self.predictors[prediction_index]['predictor'].update(z)
+            self.strikes[prediction_index] = 0
+
+
+        # Add new tracker if number of observations exceeds number of trackers
+        if len(observations) > len(prediction_indices):
+            mask = np.in1d(np.arange(len(observations)), observation_indices)
+
+            unused_indices = np.where(~mask)[0]
+            new_prediction_indices = np.zeros(len(observations))
+            new_prediction_indices[observation_indices] = prediction_indices
+            for i in unused_indices:
+                observation_dict = observations[i]
+                x0 = observation_dict["x"]
+                new_prediction_index = self.addPredictor(x0)
+                new_prediction_indices[i] = new_prediction_index
+
+            prediction_indices = new_prediction_indices.astype(int)
+            self.update_constraints(observations, prediction_indices)
+
+        if len(self.predictors) > len(observations):
+            mask = np.in1d(np.arange(len(self.predictors)), prediction_indices)
+
+            unused_indices = np.where(~mask)[0]
+            #If assignment not made for a while, increment strikes...threshold is arbitrary 
+
+            for i in unused_indices:
+                self.strikes[j] += 1
+
+
+        labels = [self.predictors[i]['label'] for i in prediction_indices]
+        self.k += 1
+
+        if self.show_predictions: 
+            return labels, preds
+        else:
+            return labels
+
+
+
+    def addPredictor(self, x0):
+        """ Add a new predictor
+
+            x0 : Array containing information about new predictor
+
+        """
+        dim_x = self.Q.shape[0]
+        dim_z = self.R.shape[0]
+
+        kf = KalmanFilter(dim_x=dim_x, dim_z=dim_z)
+        kf.x = x0
+        kf.F = self.F
+        kf.H = self.H
+        kf.P = self.P0
+        kf.R = self.R
+        kf.Q = self.Q
+
+        rules = {}
+
+        new_index = len(self.predictors)
+
+
+        self.predictors.append(
+          {
+            'predictor' : kf,
+            'rules' : rules,
+            'label' : self.current_predictor_labels.pop()
+          }
+        )
+
+
+
+        self.strikes.append(0)
+        return new_index
+
+    def update_constraints(self, observations, prediction_indices):
+        """ Define predictor relationships based on relationships between corresponding observation
+
+            observations : List of dictionaries with information about detected observations
+            prediction_indices : Indices of predictors (corresponds to observations)
+
+        """
+        assert len(observations) == len(prediction_indices)
+
+        for i, obs1 in enumerate(observations):
+            x1 = obs1['x']
+            tipx, tipy, folx, foly, pixlen = x1[0], x1[1], x1[2], x1[3], x1[4]
+            rank = x1[5]
+
+            j = i + 1
+            while j < len(observations):
+                obs2 = observations[j]
+
+                x2 = obs2['x']
+                tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x2[0], x2[1], x2[2], x2[3], x2[4]
+                rank_predictor = x2[5]
+
+                # _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
+                area = area_between((folx, foly), (tipx, tipy), (folx_predictor, foly_predictor), (tipx_predictor, tipy_predictor))
+                closeness = np.abs(rank - rank_predictor)
+
+                pixlen_rule = ''
+                fol_rule = ''
+                closeness_rule = ''
+                overlap_rule = ''
+
+                if pixlen - pixlen_predictor < -20:
+                    pixlen_rule = 'shorter'
+                elif pixlen - pixlen_predictor > 20:
+                    pixlen_rule = 'longer'
+                else:
+                    pixlen_rule = 'even'
+
+                if area <= 0:
+                    fol_rule = 'above'
+                elif area > 0:
+                    fol_rule = 'below'
+
+
+                if closeness <= 2 :
+                    closeness_rule = 'near'
+                else:
+                    closeness_rule = 'far'
+
+
+                # if dist_between_segments < 5:
+                #     overlap_rule = 'true'
+                # else:
+                #     overlap_rule = 'false'
+
+                closeness_rule = closeness
+
+                # Record rules that define the relationship between these two predictors
+                rules = {
+                    'length_rule': pixlen_rule,
+                    'fol_rule' : fol_rule, 
+                    'closeness_rule' : closeness_rule,
+                    'overlap_rule': overlap_rule
+                }
+                # print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
+                print "{}->{} \t rules: {} \t segment_area: {}".format(j, i, rules, area) 
+
+
+                # Define converse rules as well
+                opp_rules = {}
+
+                if pixlen_rule == 'shorter':
+                    opp_rules['length_rule'] = 'longer'
+                elif pixlen_rule == 'longer':
+                    opp_rules['length_rule'] = 'shorter'
+                else:
+                    opp_rules['length_rule'] = 'even'
+
+                if fol_rule == 'above':
+                    opp_rules['fol_rule'] = 'below'
+                elif fol_rule == 'below':
+                    opp_rules['fol_rule'] = 'above'
+
+
+                if closeness_rule == 'near':
+                    opp_rules['closeness_rule'] = 'far'
+                else:
+                    opp_rules['closeness_rule'] = 'near'
+
+                opp_rules['overlap_rule'] = overlap_rule
+                opp_rules['closeness_rule'] = closeness
+
+                prediction_index1 = prediction_indices[i]
+                prediction_index2 = prediction_indices[j]
+
+                self.predictors[prediction_index1]['rules'][j] = FollicleConstraint(rules)
+                self.predictors[prediction_index2]['rules'][i] = FollicleConstraint(opp_rules)
+
+                j += 1
 
 
 
@@ -70,7 +422,7 @@ class UnscentedKalmanTracker(object):
         #     self.current_predictor_label -= 1
 
         #update each prediction and form a cost matrix
-
+        
         current_predictors = self.predictors
         cost_matrix = np.zeros((len(observations), len(self.predictors)))
 
@@ -200,751 +552,7 @@ class UnscentedKalmanTracker(object):
 
 
 
-class KalmanTracker(object):
-    """
-    Uses Kalman Filters and assignments with a Hungarian algorithm to keep track
-    of observed objects
-    """
-    def __init__(self, P0, F, H, Q, R , max_object_count=8, max_strikes=20, show_predictions=False):
-        self.predictors = [] #List of KalmanThreads
-        self.current_predictor_labels = range(max_object_count, 0, -1)
-        # {'label': 1, 'predictor': KalmanThread}
-        self.max_strikes = max_strikes
-        self.max_object_count = max_object_count
-        self.strikes = []
-        self.rankings = None
 
-        self.P0, self.Q, self.R, self.F, self.H = P0, Q, R, F, H
-        self.show_predictions = show_predictions
-
-        self.k = 1
-
-
-    # def initalize_predictors(observations):
-    #     observation_dict = observations[i]
-    #     x0 = observation_dict["x"]
-    #     new_prediction_index = self.addPredictor(x0)
-    #     new_prediction_indices[i] = new_prediction_index
-
-    #     for i, observation_dict in enumerate(observations):
-    #         x0 = observation_dict["x"]
-
-    #         self.addPredictor(x0)
-
-    def detect2(self, observations):
-
-        #Remove a predictor if it has had too many erroneous walks
-        # current_predictors = self.predictors
-        # keep_indices = []
-        # filtered_predictors = []
-        # filtered_strikes = []
-        # for i, strikes in enumerate(self.strikes):
-        #     if strikes < self.max_strikes:
-        #         keep_indices.append(i)
-        #     else:
-        #         self.current_predictor_labels.append(current_predictors[i]['label'])
-
-
-        # for i in keep_indices:
-        #     filtered_predictors.append(self.predictors[i])
-        #     filtered_strikes.append(self.strikes[i])
-
-        # self.predictors = filtered_predictors
-        # self.strikes = filtered_strikes
-
-
-        observation_indices, prediction_indices = [], []
-        used_indices = []
-        
-        exclusion_count = 0
-        exclusion_indices = []
-
-        for i, observation_dict in enumerate(observations):
-            cost_list = np.zeros(len(self.predictors))
-            cost_list[prediction_indices] = np.inf
-
-            dist_list = np.zeros(len(self.predictors))
-            dist_list[prediction_indices] = np.inf
-
-
-            for j, predictor in enumerate(self.predictors):
-                if j not in prediction_indices and j not in exclusion_indices:
-                    z = observation_dict['z']
-                    x, P = predictor['predictor'].get_prediction()
-                    prediction = np.dot(predictor['predictor'].H, x)
-                    dist = np.linalg.norm(prediction - z)
-                    # dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(R))
-
-                    likelihood = 1
-
-                    for k, observation_index in enumerate(observation_indices):
-                        prediction_index = prediction_indices[k]
-                        matched_predictor = self.predictors[prediction_index]
-                        constraints = matched_predictor['rules'][j]
-
-
-                        x_obs = observations[observation_index]['x']
-                        x_other = observation_dict['x']
-
-                        x_obs_folx, x_obs_foly = x_obs[2], x_obs[3]
-                        x_obs_tipx, x_obs_tipy = x_obs[0], x_obs[1]
-
-                        x_other_folx, x_other_foly = x_other[2], x_other[3]
-                        x_other_tipx, x_other_tipy = x_other[0], x_other[1]
-
-                        # intersection = seg_intersect([x_obs_folx, x_obs_foly], [x_obs_tipx, x_obs_tipy], [x_other_folx, x_other_foly], [x_other_tipx, x_other_tipy])
-                        # intersection_dist = np.linalg.norm(intersection - np.array([x_obs_folx, x_obs_foly]))
-                        # _, _, dist_between_segments = closestDistanceBetweenLines([x_obs_folx, x_obs_foly, 0], [x_obs_tipx, x_obs_tipy, 0], [x_other_folx, x_other_foly, 0], [x_other_tipx, x_other_tipy, 0], clampAll=True)
-
-                        area = area_between((x_obs_folx, x_obs_foly), (x_obs_tipx, x_obs_tipy), (x_other_folx, x_other_foly), (x_other_tipx, x_other_tipy))
-                        closeness = np.abs(x_obs[5] - x_other[5])
-
-
-                        # length_diff = x_obs[3] - x_other[3]
-                        fol_diff = x_obs[3] - x_other[3]
-                        # abs_fol_diff = np.abs(fol_diff)
-            
-
-                        # print constraints.rule_dict
-                        # print                             {
-                        #         'length_diff': length_diff,
-                        #         'fol_diff': fol_diff,
-                        #         'closeness': abs_fol_diff,
-                        #     }
-                        congruity = constraints.compute_congruity(
-                            {
-                                'fol_diff': area,
-                                # 'overlap': dist_between_segments,
-                                'closeness': closeness,
-                                # 'closeness': abs_fol_diff,
-                            }
-                        )
-
-                        # if j == 4 and prediction_index == 1:
-                            # print "{}->{}\tcongruity: {}".format(self.predictors[j]['label'], self.predictors[prediction_index]['label'], congruity)
-
-                        likelihood *= congruity
-                        # print congruity
-
-                    # print "{}%".format((likelihood ** -1 / dist)*100 )
-                    # cost = dist * likelihood ** -1
-                    # print "cost: {}\tdist: {}".format(cost, dist)
-                    # cost = dist
-                    # cost = likelihood ** -1
-
-                    # cost = 100 ** (-1 * np.log(likelihood) + 1) + dist
-                    cost = -1 * np.log(likelihood) + 1
-                    # print "dist: {}\t cost: {}\t likelihood: {}".format(dist, cost, likelihood)
-                    cost_list[j] = cost
-                    dist_list[j] = dist
-            if len(self.predictors) - i > 0:
-                prediction_index = np.argmin(cost_list)
-                # print cost_list[prediction_index]
-                # if len(self.current_predictor_labels) - exclusion_count > 0 and dist_list[prediction_index] > 70 and cost_list[prediction_index] > 3 :
-                #     # print cost_list[prediction_index], dist_list[prediction_index]
-                #     exclusion_count += 1
-                #     exclusion_indices.append(j)
-                # else:
-                observation_indices.append(i)
-                prediction_indices.append(prediction_index)  
-
-
-        preds = np.zeros((len(observations), 2))
-        for i in range(len(observation_indices)):
-            observation_index = observation_indices[i]
-            prediction_index = prediction_indices[i]
-
-
-
-
-            predictor = self.predictors[prediction_index]['predictor']
-
-
-
-            observation_dict = observations[observation_index]
-            z = observation_dict['z']
-
-            # preds.append(np.dot(predictor.H, predictor.x))
-            if self.show_predictions:
-                prediction = np.dot(predictor.H, predictor.x)# + self.R
-                preds[observation_index, :] = prediction
-
-            self.predictors[prediction_index]['predictor'].R = self.R
-            self.predictors[prediction_index]['predictor'].predict()
-            self.predictors[prediction_index]['predictor'].update(z)
-            self.strikes[prediction_index] = 0
-
-
-        if len(observations) > len(prediction_indices):
-            mask = np.in1d(np.arange(len(observations)), observation_indices)
-
-            unused_indices = np.where(~mask)[0]
-            new_prediction_indices = np.zeros(len(observations))
-            new_prediction_indices[observation_indices] = prediction_indices
-            for i in unused_indices:
-                observation_dict = observations[i]
-                x0 = observation_dict["x"]
-                new_prediction_index = self.addPredictor(x0)
-                new_prediction_indices[i] = new_prediction_index
-
-            prediction_indices = new_prediction_indices.astype(int)
-            self.update_constraints2(observations, prediction_indices)
-
-        if len(self.predictors) > len(observations):
-            mask = np.in1d(np.arange(len(self.predictors)), prediction_indices)
-
-            unused_indices = np.where(~mask)[0]
-            #If assignment not made for a while, increment strikes...threshold is arbitrary 
-
-            for i in unused_indices:
-                self.strikes[j] += 1
-
-
-        labels = [self.predictors[i]['label'] for i in prediction_indices]
-        self.k += 1
-
-        if self.show_predictions: 
-            return labels, preds
-        else:
-            return labels
-
-
-
-        # for i, observation_dict in enumerate(observations):
-        #     cost_matrix = np.zeros((len(observations), i + 1))
-
-        #     predictor = self.predictors[0]['predictor']
-        #     z = observation_dict['z']
-        #     x, P = predictor.get_prediction()
-        #     prediction = np.dot(predictor['predictor'].H, x)
-        #     dist = np.linalg.norm(prediction - z)
-        #     cost_matrix[i, 0] = 
-
-
-    def detect(self, observations):
-        #Remove a predictor if it has had too many erroneous walks
-        current_predictors = self.predictors
-        keep_indices = []
-        filtered_predictors = []
-        filtered_strikes = []
-        for i, strikes in enumerate(self.strikes):
-            if strikes < self.max_strikes:
-                keep_indices.append(i)
-            else:
-                self.current_predictor_labels.append(current_predictors[i]['label'])
-
-
-        for i in keep_indices:
-            filtered_predictors.append(self.predictors[i])
-            filtered_strikes.append(self.strikes[i])
-
-        self.predictors = filtered_predictors
-        self.strikes = filtered_strikes
-
-
-
-        #update each prediction and form a cost matrix
-        cost_matrix = np.zeros((len(observations), len(self.predictors)))
-
-        #rows of cost matrix represent observations, columns represent predictions
-        for i, observation_dict in enumerate(observations):
-            for j, predictor in enumerate(self.predictors):
-                z = observation_dict['z']
-
-                #Guess the output for a prediction and set its distance from observed value as cost
-                x, P = predictor['predictor'].get_prediction()
-                prediction = np.dot(predictor['predictor'].H, x)
-
-
-                dist = np.linalg.norm(prediction - z)
-                cost = dist
-                cost_matrix[i, j] = cost
-
-        #Assign observations to predictions with cost matrix
-        observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
-
-
-        prelim_labels = [self.predictors[i]['label'] for i in prediction_indices]
-        
-        for i, label in enumerate(prelim_labels):
-            #Find likelihood that a predictor is in this order with this number of observations
-            likelihood = self.individual_log_likelihood(label, observation_indices[i], len(observations))
-            observation_index = observation_indices[i]
-            prediction_index = prediction_indices[i]
-            
-            # if label == 2:
-                # print "frame: {} \t cost: {} \t".format(self.k + 10000, cost_matrix[observation_index, prediction_index])
-
-            #Give a bonus to extremely likely matches, and detract from unlikely matches
-            if likelihood < -1.4:
-                # print likelihood
-                cost_matrix[observation_index, prediction_index] += 15
-                # print cost_matrix[observation_index, prediction_index] - 50, cost_matrix[observation_index, prediction_index]
-            elif likelihood > -0.06:
-                cost_matrix[observation_index, prediction_index] -= 15
-        # observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
-
-
-
-        exclusion_indices = []
-        predictor_exclusion_indices = []
-
-        extreme_cost_dict = {}
-        preds = np.zeros((len(observations), 2))
-        for i in range(len(observation_indices)):
-            observation_index = observation_indices[i]
-            prediction_index = prediction_indices[i]
-
-
-
-            cost = cost_matrix[observation_index, prediction_index]
-
-            if self.predictors[prediction_index]['label'] == 2:
-                predictor = self.predictors[prediction_index]['predictor']
-                print "frame: {} \t cost: {} \t".format(self.k + 10000, cost)
-            predictor = self.predictors[prediction_index]['predictor']
-
-
-
-            if (cost < 100 or predictor.x[2] > 250):
-               
-                
-                observation_dict = observations[observation_index]
-                z = observation_dict['z']
-
-                # preds.append(np.dot(predictor.H, predictor.x))
-                if self.show_predictions:
-                    prediction = np.dot(predictor.H, predictor.x)# + self.R
-                    preds[observation_index, :] = prediction
-
-                self.predictors[prediction_index]['predictor'].R = self.R
-                self.predictors[prediction_index]['predictor'].predict()
-                self.predictors[prediction_index]['predictor'].update(z)
-                self.strikes[prediction_index] = 0
-            else:
-                # extreme_cost_dict[i] = cost / self.predictors[prediction_index]['predictor'].x[2]
-                extreme_cost_dict[i] = cost
-
-
-        sorted_exclusion_indices = sorted(extreme_cost_dict, key=extreme_cost_dict.get, reverse=True)
-
-        # exclusion_indices = sorted_exclusion_indices[:len(self.predictors) + len(sorted_exclusion_indices) - 8]
-        # remainding_indices = sorted_exclusion_indices[len(self.predictors) + len(sorted_exclusion_indices) - 8:]
-
-        # right_cutoff = max(0, self.max_object_count - (len(self.predictors) + len(sorted_exclusion_indices) + 1))
-        # cutoff = min(len(sorted_exclusion_indices), right_cutoff)
-
-        # # print len(self.predictors), len(sorted_exclusion_indices), cutoff
-        # exclusion_indices = sorted_exclusion_indices[:cutoff]
-        # remainding_indices = sorted_exclusion_indices[cutoff:]
-
-        cutoff = min(self.max_object_count - len(self.predictors), len(sorted_exclusion_indices))
-        exclusion_indices = sorted_exclusion_indices[:cutoff]
-        remainding_indices = sorted_exclusion_indices[cutoff:]
-
-
-
-        for i in remainding_indices:
-            observation_index = observation_indices[i]
-            prediction_index = prediction_indices[i]
-            cost = cost_matrix[observation_index, prediction_index]
-            # if self.predictors[prediction_index]['label'] == 6:
-            #     print "cost2: {}".format(cost)
-            #     print "sorted_exclusion_indices: {} \t exclusion_indices: {}\t predictor length: {} \t cutoff: {}".format(sorted_exclusion_indices, exclusion_indices, len(self.predictors), len(self.predictors))              
-            if self.show_predictions:
-                preds[observation_index, :] = np.dot(self.predictors[prediction_index]['predictor'].H, self.predictors[prediction_index]['predictor'].x)
-
-            observation_dict = observations[observation_index]
-            z = observation_dict['z']
-            # print len(self.predictors) + len(exclusion_indices)
-            # if self.predictors[prediction_index]['predictor'].x[2] < 250:
-            #     self.predictors[prediction_index]['predictor'].R = np.eye(2) * np.array([1000, 1000])
-            # else:
-            self.predictors[prediction_index]['predictor'].R = np.eye(2) * np.array([1000, 1000])
-            self.predictors[prediction_index]['predictor'].predict()
-            self.predictors[prediction_index]['predictor'].update(z) 
-            self.strikes[prediction_index] = 0           
-
-
-        observation_indices = np.delete(observation_indices, exclusion_indices)
-        prediction_indices = np.delete(prediction_indices, exclusion_indices)
-
-        # current_predictors = np.delete(current_predictors, predictor_exclusion_indices)
-
-
-        # Prepare to add new observation if number exceeds predictions
-        if len(observations) > len(prediction_indices):
-            mask = np.in1d(np.arange(len(observations)), observation_indices)
-
-            unused_indices = np.where(~mask)[0]
-            new_prediction_indices = np.zeros(len(observations))
-            new_prediction_indices[observation_indices] = prediction_indices
-            for i in unused_indices:
-                observation_dict = observations[i]
-                x0 = observation_dict["x"]
-                new_prediction_index = self.addPredictor(x0)
-                new_prediction_indices[i] = new_prediction_index
-
-            prediction_indices = new_prediction_indices.astype(int)
-
-
-
-        if len(current_predictors) > len(observations):
-            mask = np.in1d(np.arange(len(current_predictors)), prediction_indices)
-
-            unused_indices = np.where(~mask)[0]
-            #If assignment not made for a while, increment strikes...threshold is arbitrary 
-
-            for i in unused_indices:
-                self.strikes[j] += 1
-
-        # print self.current_predictor_labels
-
-        # Return the label (numerical) of each assignment
-        labels = [self.predictors[i]['label'] for i in prediction_indices]
-        self.k += 1
-        if self.rankings:
-            pass # self.cumullog_likelihood(labels)
-        if self.show_predictions:
-            
-            return labels, preds
-        else:
-            return labels
-
-
-    def addPredictor(self, x0):
-        dim_x = self.Q.shape[0]
-        dim_z = self.R.shape[0]
-
-        kf = KalmanFilter(dim_x=dim_x, dim_z=dim_z)
-        kf.x = x0
-        kf.F = self.F
-        kf.H = self.H
-        kf.P = self.P0
-        kf.R = self.R
-        kf.Q = self.Q
-
-        rules = {}
-
-        new_index = len(self.predictors)
-
-        # # lower_length_limit, upper_length_limit = -600, 600
-        # # lower_angle_limit, upper_angle_limit =  -4 * np.pi / 9, 4 * np.pi / 9
-
-        # # length_diff = ctrl.Antecedent(np.arange(lower_length_limit, upper_length_limit, 1), 'length_diff')
-        # # angle_diff = ctrl.Antecedent(np.linspace(lower_angle_limit, upper_angle_limit ), 'angle_diff')
-        # # # foly_diff = ctrl.Antecedent(np.arange(-150, 150), 'foly_diff')
-
-        # # congruity = ctrl.Consequent(np.arange(0, 1), 'congruity')
-
-        # # length_diff['shorter'] = fuzz.trimf(length_diff.universe, [-600, -600 , -20])
-        # # length_diff['even'] = fuzz.trimf(length_diff.universe, [-20, 0, 20])
-        # # length_diff['longer'] = fuzz.trimf(length_diff.universe, [20, 600, 600])
-
-        # # angle_diff['more protracted'] = fuzz.trimf(angle_diff.universe, [lower_angle_limit, lower_angle_limit, -np.pi/32])
-        # # angle_diff['even'] = fuzz.trimf(angle_diff.universe, [-np.pi/32, 0, np.pi/32])
-        # # angle_diff['more retracted'] = fuzz.trimf(angle_diff.universe, [np.pi/32, upper_angle_limit, upper_angle_limit])
-
-        # # congruity['awful'] = fuzz.trimf(congruity.universe, [0, 0, 0.33])
-        # # congruity['average'] = fuzz.trimf(congruity.universe, [0.33, 0.5, 0.67])
-        # # congruity['great'] = fuzz.trimf(congruity.universe, [0.67, 1, 1])
-
-        # for i, predictor in enumerate(self.predictors):
-        #     tipx, tipy, folx, foly, pixlen = x0[0], x0[1], x0[2], x0[3], x0[4]
-
-        #     x = predictor['predictor'].x
-        #     tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x[0], x[1], x[2], x[3], x[4]
-
-        #     intersection = seg_intersect([folx, foly], [tipx, tipy], [folx_predictor, foly_predictor], [tipx_predictor, tipy_predictor])
-        #     intersection_dist = np.linalg.norm(intersection - np.array([folx, foly]))
-
-        #     self.predictors[i]['rules'][new_index] = {}
-
-        #     pixlen_rule = ''
-        #     fol_rule = ''
-        #     closeness_rule = ''
-        #     intersection_rule = ''
-
-        #     if pixlen - pixlen_predictor < -20:
-        #         pixlen_rule = 'shorter'
-        #     elif pixlen - pixlen_predictor > 20:
-        #         pixlen_rule = 'longer'
-        #     else:
-        #         pixlen_rule = 'even'
-
-        #     if foly - foly_predictor <= 0:
-        #         fol_rule = 'above'
-        #     elif foly - foly_predictor > 0:
-        #         fol_rule = 'below'
-
-
-        #     if np.abs(foly - foly_predictor) < 30 :
-        #         closeness_rule = 'near'
-        #     else:
-        #         closeness_rule = 'far'
-
-
-        #     if intersection_dist < 30:
-        #         intersection_rule = 'intersected'
-        #     else:
-        #         intersection_rule = 'not intersected'
-
-
-
-        #     rule_dict = {
-        #         'length_rule': pixlen_rule,
-        #         'fol_rule' : fol_rule, 
-        #         'closeness_rule' : closeness_rule,
-        #         'intersection_rule': intersection_rule
-        #     }
-        #     print "{}->{} \t rules: {}".format(new_index, i, rule_dict) 
-
-        #     rules[i] = FollicleConstraint(rule_dict)
-
-        #     opp_rules = {}
-
-        #     if pixlen_rule == 'shorter':
-        #         opp_rules['length_rule'] = 'longer'
-        #     elif pixlen_rule == 'longer':
-        #         opp_rules['length_rule'] = 'shorter'
-        #     else:
-        #         opp_rules['length_rule'] = 'even'
-
-        #     if fol_rule == 'above':
-        #         opp_rules['fol_rule'] = 'below'
-        #     elif fol_rule == 'below':
-        #         opp_rules['fol_rule'] = 'above'
-
-
-        #     if closeness_rule == 'near':
-        #         opp_rules['closeness_rule'] = 'far'
-        #     else:
-        #         opp_rules['closeness_rule'] = 'near'
-
-        #     opp_rules['intersection_rule'] = intersection_rule
-
-
-        #     self.predictors[i]['rules'][new_index] = FollicleConstraint(opp_rules)
-
-
-        self.predictors.append(
-          {
-            'predictor' : kf,
-            'rules' : rules,
-            'label' : self.current_predictor_labels.pop()
-          }
-        )
-
-        # self.update_constraints()
-
-
-        self.strikes.append(0)
-        return new_index
-
-        # self.current_predictor_label += 1
-
-    def update_constraints2(self, observations, prediction_indices):
-        assert len(observations) == len(prediction_indices)
-
-        for i, obs1 in enumerate(observations):
-            x1 = obs1['x']
-            tipx, tipy, folx, foly, pixlen = x1[0], x1[1], x1[2], x1[3], x1[4]
-            rank = x1[5]
-
-            j = i + 1
-            while j < len(observations):
-                obs2 = observations[j]
-
-                x2 = obs2['x']
-                tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x2[0], x2[1], x2[2], x2[3], x2[4]
-                rank_predictor = x2[5]
-
-                # _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
-                area = area_between((folx, foly), (tipx, tipy), (folx_predictor, foly_predictor), (tipx_predictor, tipy_predictor))
-                closeness = np.abs(rank - rank_predictor)
-
-                pixlen_rule = ''
-                fol_rule = ''
-                closeness_rule = ''
-                overlap_rule = ''
-
-                if pixlen - pixlen_predictor < -20:
-                    pixlen_rule = 'shorter'
-                elif pixlen - pixlen_predictor > 20:
-                    pixlen_rule = 'longer'
-                else:
-                    pixlen_rule = 'even'
-
-                if area <= 0:
-                    fol_rule = 'above'
-                elif area > 0:
-                    fol_rule = 'below'
-
-
-                if closeness <= 2 :
-                    closeness_rule = 'near'
-                else:
-                    closeness_rule = 'far'
-
-
-                # if dist_between_segments < 5:
-                #     overlap_rule = 'true'
-                # else:
-                #     overlap_rule = 'false'
-
-                closeness_rule = closeness
-
-                rules = {
-                    'length_rule': pixlen_rule,
-                    'fol_rule' : fol_rule, 
-                    'closeness_rule' : closeness_rule,
-                    'overlap_rule': overlap_rule
-                }
-                # print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
-                print "{}->{} \t rules: {} \t segment_area: {}".format(j, i, rules, area) 
-
-
-                opp_rules = {}
-
-                if pixlen_rule == 'shorter':
-                    opp_rules['length_rule'] = 'longer'
-                elif pixlen_rule == 'longer':
-                    opp_rules['length_rule'] = 'shorter'
-                else:
-                    opp_rules['length_rule'] = 'even'
-
-                if fol_rule == 'above':
-                    opp_rules['fol_rule'] = 'below'
-                elif fol_rule == 'below':
-                    opp_rules['fol_rule'] = 'above'
-
-
-                if closeness_rule == 'near':
-                    opp_rules['closeness_rule'] = 'far'
-                else:
-                    opp_rules['closeness_rule'] = 'near'
-
-                opp_rules['overlap_rule'] = overlap_rule
-                opp_rules['closeness_rule'] = closeness
-
-                prediction_index1 = prediction_indices[i]
-                prediction_index2 = prediction_indices[j]
-
-                self.predictors[prediction_index1]['rules'][j] = FollicleConstraint(rules)
-                self.predictors[prediction_index2]['rules'][i] = FollicleConstraint(opp_rules)
-
-                j += 1
-
-
-
-    def update_constraints(self):
-        for i, predictor1 in enumerate(self.predictors):
-            x1 = predictor1['predictor'].x
-            tipx, tipy, folx, foly, pixlen = x1[0], x1[1], x1[2], x1[3], x1[4]
-            rank = x1[5]
-            j = i + 1
-            while j < len(self.predictors):  
-                predictor2 = self.predictors[j]
-
-                x2 = predictor2['predictor'].x
-
-                tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x2[0], x2[1], x2[2], x2[3], x2[4]
-                rank_predictor = x2[5]
-                # intersection = seg_intersect([folx, foly], [tipx, tipy], [folx_predictor, foly_predictor], [tipx_predictor, tipy_predictor])
-                # intersection_dist = np.linalg.norm(intersection - np.array([folx, foly]))
-                _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
-
-                closeness = np.abs(rank - rank_predictor)
-
-                pixlen_rule = ''
-                fol_rule = ''
-                closeness_rule = ''
-                overlap_rule = ''
-
-                if pixlen - pixlen_predictor < -20:
-                    pixlen_rule = 'shorter'
-                elif pixlen - pixlen_predictor > 20:
-                    pixlen_rule = 'longer'
-                else:
-                    pixlen_rule = 'even'
-
-                if foly - foly_predictor <= 0:
-                    fol_rule = 'above'
-                elif foly - foly_predictor > 0:
-                    fol_rule = 'below'
-
-
-                if closeness <= 3 :
-                    closeness_rule = 'near'
-                else:
-                    closeness_rule = 'far'
-
-
-                if dist_between_segments < 5:
-                    overlap_rule = 'true'
-                else:
-                    overlap_rule = 'false'
-
-                closeness_rule = closeness
-
-                rules = {
-                    'length_rule': pixlen_rule,
-                    'fol_rule' : fol_rule, 
-                    'closeness_rule' : closeness_rule,
-                    'overlap_rule': overlap_rule
-                }
-                # print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
-
-
-                opp_rules = {}
-
-                if pixlen_rule == 'shorter':
-                    opp_rules['length_rule'] = 'longer'
-                elif pixlen_rule == 'longer':
-                    opp_rules['length_rule'] = 'shorter'
-                else:
-                    opp_rules['length_rule'] = 'even'
-
-                if fol_rule == 'above':
-                    opp_rules['fol_rule'] = 'below'
-                elif fol_rule == 'below':
-                    opp_rules['fol_rule'] = 'above'
-
-
-                if closeness_rule == 'near':
-                    opp_rules['closeness_rule'] = 'far'
-                else:
-                    opp_rules['closeness_rule'] = 'near'
-
-                opp_rules['overlap_rule'] = overlap_rule
-
-                opp_rules['closeness_rule'] = closeness
-
-
-                self.predictors[i]['rules'][j] = FollicleConstraint(rules)
-                self.predictors[j]['rules'][i] = FollicleConstraint(opp_rules)
-
-                j += 1
-
-    
-
-    def cumulative_log_likelihood(self, labels, orders, observation_count):
-        rankings = self.rankings
-        # observation_count = len(labels)
-        distributions = [rankings[observation_count][label] for label in labels]
-        # print distributions
-        # order = range(len(labels))
-
-        prob = logpmf(orders, distributions, self.max_object_count)
-        return prob
-
-    def individual_log_likelihood(self, label, order, observation_count):
-        rankings = self.rankings
-        # observation_count = len(labels)
-        distribution = rankings[observation_count][label]
-
-
-        return logpmf_single(order, distribution, self.max_object_count)
 
 
 
@@ -997,6 +605,14 @@ def logpmf(values, distributions, max_object_count):
     return total
 
 def area_between(f1, t1, f2, t2):
+    """ Finds area between two whiskers (modeled as line segments)
+
+    f1 : follicle coordinates of whisker 1
+    t1 : tip coordinates of whisker 1
+    f2 : follicle coordinates of whisker 2
+    t2 : tip coordinates of whisker 2
+
+    """
     m1 = (t1[1] - f1[1]) / (t1[0] - f1[0])
     m2 = (t2[1] - f2[1]) / (t2[0] - f2[0])
 

@@ -25,7 +25,7 @@ class KalmanTracker(object):
         """
         self.predictors = [] #List of KalmanThreads
 
-        #Labels to assign to objects
+        #Labels to assign to objects placed on a stack
         self.current_predictor_labels = range(max_object_count, 0, -1)
 
         self.max_strikes = max_strikes
@@ -150,7 +150,7 @@ class KalmanTracker(object):
                     # Determine cost as some combination of cost and likelihood (might have to be tweaked)
 
                     # cost = 100 ** (-1 * np.log(likelihood) + 1) * dist
-                    cost = dist + 2 ** (-1 * np.log(likelihood) + 1)
+                    cost = dist + 100 ** (-1 * np.log(likelihood) + 1)
                     # cost = -1 * np.log(likelihood) + 1
                     cost_list[j] = cost
                     dist_list[j] = dist
@@ -173,7 +173,7 @@ class KalmanTracker(object):
             prediction_index = prediction_indices[i]
 
 
-
+            
 
             predictor = self.predictors[prediction_index]['predictor']
 
@@ -361,8 +361,10 @@ class KalmanTracker(object):
                 prediction_index1 = prediction_indices[i]
                 prediction_index2 = prediction_indices[j]
 
-                self.predictors[prediction_index1]['rules'][j] = FollicleConstraint(rules)
-                self.predictors[prediction_index2]['rules'][i] = FollicleConstraint(opp_rules)
+                if j not in self.predictors[prediction_index1]['rules']:
+                    self.predictors[prediction_index1]['rules'][j] = FollicleConstraint(rules)
+                if i not in self.predictors[prediction_index2]['rules']:
+                    self.predictors[prediction_index2]['rules'][i] = FollicleConstraint(opp_rules)
 
                 j += 1
 
@@ -398,7 +400,7 @@ class DerivedUnscentedKalmanFilter(UnscentedKalmanFilter):
 
 class UnscentedKalmanTracker(object):
     """
-    Uses Kalman Filters and assignments with a Hungarian algorithm to keep track
+    Uses Unscented Kalman Filters and assignments with a Hungarian algorithm to keep track
     of observed objects
     """
     def __init__(self, P0, Q, R, f, h, dt, show_predictions=False):
@@ -422,7 +424,7 @@ class UnscentedKalmanTracker(object):
         #     self.current_predictor_label -= 1
 
         #update each prediction and form a cost matrix
-        
+
         current_predictors = self.predictors
         cost_matrix = np.zeros((len(observations), len(self.predictors)))
 
@@ -613,12 +615,23 @@ def area_between(f1, t1, f2, t2):
     t2 : tip coordinates of whisker 2
 
     """
+    dist1 = np.linalg.norm(np.array(f1) - np.array(t1))
+    dist2 = np.linalg.norm(np.array(f2) - np.array(t2))
+
+    limits = ()
+
+    if dist1 < dist2:
+        limits = (t1[0], f1[0])
+    else:
+        limits = (t2[0], f2[0])
+
+
     m1 = (t1[1] - f1[1]) / (t1[0] - f1[0])
     m2 = (t2[1] - f2[1]) / (t2[0] - f2[0])
 
     fn = lambda x: (m2 * (x - t2[0]) + t2[1]) - (m1 * (x - t1[0]) + t1[1])
 
-    result = integrate.quad(fn, t1[0], f1[0])
+    result = integrate.quad(fn, limits[0], limits[1])
 
     return result[0]
 

@@ -7,6 +7,26 @@ import numpy as np
 import skfuzzy as fuzz
 from skfuzzy import control as ctrl
 
+#Define antecedents and consequents.
+#For example check out http://pythonhosted.org/scikit-fuzzy/auto_examples/plot_tipping_problem_newapi.html
+
+LOWER_LENGTH_LIMIT, UPPER_LENGTH_LIMIT = -600, 600
+
+LENGTH_DIFF = ctrl.Antecedent(np.arange(LOWER_LENGTH_LIMIT, UPPER_LENGTH_LIMIT, 1), 'length_diff')
+LENGTH_DIFF['shorter'] = fuzz.trapmf(LENGTH_DIFF.universe, [LOWER_LENGTH_LIMIT, LOWER_LENGTH_LIMIT, -40, 0])
+LENGTH_DIFF['longer'] = fuzz.trapmf(LENGTH_DIFF.universe, [0, 40, UPPER_LENGTH_LIMIT, UPPER_LENGTH_LIMIT])
+
+LOWER_AREA_DIFF_LIMIT, UPPER_AREA_DIFF_LIMIT = - (300 ** 2), 300 ** 2
+
+AREA_DIFF = ctrl.Antecedent(np.linspace(LOWER_AREA_DIFF_LIMIT, UPPER_AREA_DIFF_LIMIT, 1000), 'area_diff')
+AREA_DIFF['above'] = fuzz.trapmf(AREA_DIFF.universe, [LOWER_AREA_DIFF_LIMIT, LOWER_AREA_DIFF_LIMIT, -2000, 2000])
+AREA_DIFF['below'] = fuzz.trapmf(AREA_DIFF.universe, [-2000, 2000, UPPER_AREA_DIFF_LIMIT, UPPER_AREA_DIFF_LIMIT])
+
+OVERLAP = ctrl.Antecedent(np.arange(0, 600), 'overlap')
+OVERLAP['true'] = fuzz.trapmf(OVERLAP.universe, [0, 0, 5, 10])
+OVERLAP['false'] = fuzz.trapmf(OVERLAP.universe, [7, 12, 600, 600])
+
+
 class Constraint(object):
     __metaclass__ = abc.ABCMeta
 
@@ -19,9 +39,13 @@ class Constraint(object):
         congruity = ctrl.Consequent(np.linspace(0, 1), 'congruity')
 
         # Define 3 tiers of congruity as 3 probablity ranges
-        congruity['awful'] = fuzz.trimf(congruity.universe, [0, 0, 0.33])
-        congruity['average'] = fuzz.trimf(congruity.universe, [0.33, 0.5, 0.67 ])
-        congruity['great'] = fuzz.trimf(congruity.universe, [0.67, 1, 1])
+        # congruity['awful'] = fuzz.trimf(congruity.universe, [0, 0, 0.33])
+        # congruity['average'] = fuzz.trimf(congruity.universe, [0.33, 0.5, 0.67 ])
+        # congruity['great'] = fuzz.trimf(congruity.universe, [0.67, 1, 1])
+
+        congruity['awful'] = fuzz.trimf(congruity.universe, [0, 0, 0.5])
+        congruity['average'] = fuzz.trimf(congruity.universe, [0, 0.5, 1])
+        congruity['great'] = fuzz.trimf(congruity.universe, [0.5, 1, 1])
 
         self.congruity = congruity        
 
@@ -37,8 +61,10 @@ class Constraint(object):
 
         congruity_calculator.inputs(value_dict)
         congruity_calculator.compute()
-
+        # print "rule: {}\t closeness: {}\t congruity: {}".format(self.rule_dict['closeness_rule'], value_dict['closeness'], congruity_calculator.output['congruity'])
         return congruity_calculator.output['congruity']
+
+
 
 class FollicleConstraint(Constraint):
     def __init__(self, rule_dict):
@@ -58,37 +84,6 @@ class FollicleConstraint(Constraint):
         length_rule, fol_rule, closeness_rule, overlap_rule = rule_dict['length_rule'], rule_dict['fol_rule'], rule_dict['closeness_rule'], rule_dict['overlap_rule']
 
 
-        lower_length_limit, upper_length_limit = -600, 600
-
-        #Define antecedents and consequents.
-        #For example check out http://pythonhosted.org/scikit-fuzzy/auto_examples/plot_tipping_problem_newapi.html
-
-        length_diff = ctrl.Antecedent(np.arange(lower_length_limit, upper_length_limit, 1), 'length_diff')
-        length_diff['shorter'] = fuzz.trapmf(length_diff.universe, [-600, -600, -40, 0])
-        length_diff['even'] = fuzz.trimf(length_diff.universe, [-40, 0, 40])
-        length_diff['longer'] = fuzz.trapmf(length_diff.universe, [0, 40, 600, 600])
-
-        lower_fol_limit, upper_fol_limit = - (300 ** 2), 300 ** 2
-
-        fol_diff = ctrl.Antecedent(np.linspace(lower_fol_limit, upper_fol_limit, 1000), 'fol_diff')
-        # fol_diff['above'] = fuzz.trapmf(fol_diff.universe, [lower_fol_limit, lower_fol_limit, -5, 0])
-        # fol_diff['even'] = fuzz.trimf(fol_diff.universe, [-5, 0, 5])
-        # fol_diff['below'] = fuzz.trapmf(fol_diff.universe, [0, 5, upper_fol_limit, upper_fol_limit])
-
-        fol_diff['above'] = fuzz.trapmf(fol_diff.universe, [lower_fol_limit, lower_fol_limit, -2000, 2000])
-        fol_diff['below'] = fuzz.trapmf(fol_diff.universe, [-2000, 2000, upper_fol_limit, upper_fol_limit])
-
-        overlap = ctrl.Antecedent(np.arange(0, 600), 'overlap')
-        # intersection_dist['intersected'] = fuzz.trapmf(intersection_dist.universe, [0, 0, 10, 30])
-        # intersection_dist['not intersected'] = fuzz.trapmf(intersection_dist.universe, [20, 40, 300, 300])
-
-        overlap['true'] = fuzz.trapmf(overlap.universe, [0, 0, 5, 10])
-        overlap['false'] = fuzz.trapmf(overlap.universe, [7, 12, 600, 600])
-
-        # closeness = ctrl.Antecedent(np.linspace(0, upper_fol_limit, 1000), 'closeness')
-        # closeness['near'] = fuzz.trapmf(closeness.universe, [0, 0, 20, 40])
-        # closeness['far'] = fuzz.trapmf(closeness.universe, [20, 40, upper_fol_limit, upper_fol_limit])
-
         closeness = ctrl.Antecedent(np.linspace(0, 10), 'closeness')
         closeness['good'] = fuzz.trimf(closeness.universe, [closeness_rule - 7, closeness_rule, closeness_rule + 7])
         # closeness['far'] = fuzz.trimf(closeness.universe, [3, 10, 10])
@@ -99,7 +94,7 @@ class FollicleConstraint(Constraint):
         # Is a good way of defining which constraints are more important
 
         rule1 = ctrl.Rule(
-            ~fol_diff[fol_rule],
+            ~AREA_DIFF[fol_rule],
             congruity['awful']
         )
 

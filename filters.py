@@ -126,7 +126,7 @@ class KalmanTracker(object):
                         # _, _, dist_between_segments = closestDistanceBetweenLines([x_obs_folx, x_obs_foly, 0], [x_obs_tipx, x_obs_tipy, 0], [x_other_folx, x_other_foly, 0], [x_other_tipx, x_other_tipy, 0], clampAll=True)
 
                         area = area_between((x1_folx, x1_foly), (x1_tipx, x1_tipy), (x2_folx, x2_foly), (x2_tipx, x2_tipy))
-                        closeness = np.abs(x1[5] - x1[5])
+                        closeness = np.abs(x1[5] - x2[5])
 
 
                         # length_diff = x_obs[3] - x_other[3]
@@ -137,7 +137,7 @@ class KalmanTracker(object):
                         # Find congruity or how well the observation relationships match the expected constraints
                         congruity = constraints.compute_congruity(
                             {
-                                'fol_diff': area,
+                                'area_diff': area,
                                 # 'overlap': dist_between_segments,
                                 'closeness': closeness,
                                 # 'closeness': abs_fol_diff,
@@ -150,7 +150,7 @@ class KalmanTracker(object):
                     # Determine cost as some combination of cost and likelihood (might have to be tweaked)
 
                     # cost = 100 ** (-1 * np.log(likelihood) + 1) * dist
-                    cost = dist + 100 ** (-1 * np.log(likelihood) + 1)
+                    cost = dist + 5 ** (-1 * np.log(likelihood) + 1)
                     # cost = -1 * np.log(likelihood) + 1
                     cost_list[j] = cost
                     dist_list[j] = dist
@@ -173,7 +173,7 @@ class KalmanTracker(object):
             prediction_index = prediction_indices[i]
 
 
-            
+
 
             predictor = self.predictors[prediction_index]['predictor']
 
@@ -189,7 +189,7 @@ class KalmanTracker(object):
 
 
             # Use Kalman filter to update prediction based on the observation
-            self.predictors[prediction_index]['predictor'].R = self.R
+            # self.predictors[prediction_index]['predictor'].R = self.R
             self.predictors[prediction_index]['predictor'].predict()
             self.predictors[prediction_index]['predictor'].update(z)
             self.strikes[prediction_index] = 0
@@ -361,10 +361,10 @@ class KalmanTracker(object):
                 prediction_index1 = prediction_indices[i]
                 prediction_index2 = prediction_indices[j]
 
-                if j not in self.predictors[prediction_index1]['rules']:
-                    self.predictors[prediction_index1]['rules'][j] = FollicleConstraint(rules)
-                if i not in self.predictors[prediction_index2]['rules']:
-                    self.predictors[prediction_index2]['rules'][i] = FollicleConstraint(opp_rules)
+                # if j not in self.predictors[prediction_index1]['rules']:
+                self.predictors[prediction_index1]['rules'][j] = FollicleConstraint(rules)
+                # if i not in self.predictors[prediction_index2]['rules']:
+                self.predictors[prediction_index2]['rules'][i] = FollicleConstraint(opp_rules)
 
                 j += 1
 

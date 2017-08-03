@@ -126,10 +126,10 @@ class KalmanTracker(object):
                         # _, _, dist_between_segments = closestDistanceBetweenLines([x_obs_folx, x_obs_foly, 0], [x_obs_tipx, x_obs_tipy, 0], [x_other_folx, x_other_foly, 0], [x_other_tipx, x_other_tipy, 0], clampAll=True)
 
                         area = area_between((x1_folx, x1_foly), (x1_tipx, x1_tipy), (x2_folx, x2_foly), (x2_tipx, x2_tipy))
-                        closeness = np.abs(x1[5] - x2[5])
+                        closeness = x1[5] - x2[5]
 
 
-                        # length_diff = x_obs[3] - x_other[3]
+                        length_diff = x1[4] - x2[4]
                         fol_diff = x1_foly - x2_foly
                         # abs_fol_diff = np.abs(fol_diff)
             
@@ -137,12 +137,14 @@ class KalmanTracker(object):
                         # Find congruity or how well the observation relationships match the expected constraints
                         congruity = constraints.compute_congruity(
                             {
-                                'area_diff': area,
+                                # 'area_diff': area,
                                 # 'overlap': dist_between_segments,
                                 'closeness': closeness,
+                                'length_diff': length_diff,
                                 # 'closeness': abs_fol_diff,
                             }
                         )
+                        # print "{}->{}\tcloseness_rule: {}\t closeness: {}\t length_rule: {}\t length_diff: {}\t congruity: {} ".format(j, prediction_index, constraints.rule_dict['closeness_rule'], closeness, constraints.rule_dict['length_rule'], length_diff, congruity)
 
                         #Aggregate total likelihood based on congruity of this observation with other observations
                         likelihood *= congruity
@@ -150,10 +152,11 @@ class KalmanTracker(object):
                     # Determine cost as some combination of cost and likelihood (might have to be tweaked)
 
                     # cost = 100 ** (-1 * np.log(likelihood) + 1) * dist
-                    cost = dist + 5 ** (-1 * np.log(likelihood) + 1)
+                    cost = 5 ** (-1 * np.log(likelihood) + 1)
                     # cost = -1 * np.log(likelihood) + 1
                     cost_list[j] = cost
                     dist_list[j] = dist
+
             if len(self.predictors) - i > 0:
                 # Choose matched prediction based on lowest cost
                 prediction_index = np.argmin(cost_list)
@@ -290,19 +293,18 @@ class KalmanTracker(object):
 
                 # _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
                 area = area_between((folx, foly), (tipx, tipy), (folx_predictor, foly_predictor), (tipx_predictor, tipy_predictor))
-                closeness = np.abs(rank - rank_predictor)
+                closeness = rank - rank_predictor
+                length_diff = pixlen - pixlen_predictor
 
                 pixlen_rule = ''
                 fol_rule = ''
                 closeness_rule = ''
                 overlap_rule = ''
 
-                if pixlen - pixlen_predictor < -20:
+                if pixlen - pixlen_predictor < 0:
                     pixlen_rule = 'shorter'
-                elif pixlen - pixlen_predictor > 20:
+                elif pixlen - pixlen_predictor >= 0:
                     pixlen_rule = 'longer'
-                else:
-                    pixlen_rule = 'even'
 
                 if area <= 0:
                     fol_rule = 'above'
@@ -322,6 +324,7 @@ class KalmanTracker(object):
                 #     overlap_rule = 'false'
 
                 closeness_rule = closeness
+                pixlen_rule = length_diff
 
                 # Record rules that define the relationship between these two predictors
                 rules = {
@@ -341,8 +344,7 @@ class KalmanTracker(object):
                     opp_rules['length_rule'] = 'longer'
                 elif pixlen_rule == 'longer':
                     opp_rules['length_rule'] = 'shorter'
-                else:
-                    opp_rules['length_rule'] = 'even'
+
 
                 if fol_rule == 'above':
                     opp_rules['fol_rule'] = 'below'
@@ -356,7 +358,8 @@ class KalmanTracker(object):
                     opp_rules['closeness_rule'] = 'near'
 
                 opp_rules['overlap_rule'] = overlap_rule
-                opp_rules['closeness_rule'] = closeness
+                opp_rules['closeness_rule'] = closeness * -1
+                opp_rules['length_rule'] = length_diff * -1
 
                 prediction_index1 = prediction_indices[i]
                 prediction_index2 = prediction_indices[j]

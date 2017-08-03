@@ -37,7 +37,7 @@ H = np.array([
 ])
 
 
-tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=False, max_object_count=12, max_strikes=50)
+tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=True, max_object_count=12, max_strikes=50)
 whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange', 'navy', 'turquoise', 'silver', 'yellowgreen']
 predictions = {}
 
@@ -46,7 +46,7 @@ print "loading data"
 # data = pandas.read_pickle('161215_KM91_data')
 data = pandas.read_pickle('15000_frames_revised.pickle')
 data['color_group'] = 0
-data = data[(data.frame > 10000) & (data.frame < 10150) ]
+data = data[(data.frame > 10000) & (data.frame < 10250) ]
 
 #Add an out of frame bonus to account for whiskers disappearing out of frame
 oof_y_bonus = 200
@@ -62,15 +62,18 @@ bar = progressbar.ProgressBar()
 for frame, observations in bar(data_filtered):
 
     observation_dicts = []
-    observations = observations.sort_values('length', ascending=False)
+    observations = observations.sort_values('fol_y', ascending=True)
     indices = observations.index.values
 
     observations['rank'] = observations['fol_y'].rank(ascending=False)
 
+    observations['fol_y_normalized'] = (observations['fol_y'] - observations['fol_y'].mean()) / (observations['fol_y'].max() - observations['fol_y'].min())
+    # print observations['fol_y_normalized']
+
     for j, observation in observations.iterrows():
         pixlen, tipx, tipy, folx, foly = observation.length, observation.tip_x, observation.tip_y, observation.fol_x, observation.fol_y
 
-        rank = observation['rank']
+        rank = observation['fol_y_normalized']
         #angle = -1 * arctan(tipy - mean_foly, tipx - mean_folx)
         z = np.array([tipx, tipy])
 
@@ -85,8 +88,8 @@ for frame, observations in bar(data_filtered):
         })
 
 
-    labels = tracker.detect(observation_dicts)
-    #predictions[frame] = dict([(labels[i], preds[i]) for i in range(len(preds))])
+    labels, preds = tracker.detect(observation_dicts)
+    predictions[frame] = dict([(labels[i], preds[i]) for i in range(len(preds))])
     data.loc[indices, 'color_group'] = labels
 
 
@@ -95,20 +98,19 @@ subset = data[ (data.frame > 0) & (data.frame < 15000)].groupby('frame')
 
 plt.ion()
 for frame, whiskers in subset:
-
     plt.clf()
     plt.xlim(0, 640)
     plt.ylim(0, 640)
     plt.gca().invert_yaxis()
     plt.title('Frame: {}'.format(frame))
 
-#    preds = predictions[frame]
+    preds = predictions[frame]
 
-#    for key in preds.keys():
-#        z = preds[key]
-#        color = whisker_colors[int(key)]
-#        tipx, tipy  = z[0], z[1]
-#        plt.plot(tipx, tipy, marker='o', color=color, markersize=15)
+    for key in preds.keys():
+        z = preds[key]
+        color = whisker_colors[int(key)]
+        tipx, tipy  = z[0], z[1]
+        plt.plot(tipx, tipy, marker='o', color=color, markersize=15)
         # plt.plot(folx, foly, marker='o', color=color, markersize=15)
 
 
@@ -122,7 +124,7 @@ for frame, whiskers in subset:
 
     #plt.figtext(0.4, 0.3, angles[frame] * 180 / np.pi)
 
-    plt.pause(0.00001)
+    plt.pause(0.0001)
 
 
 

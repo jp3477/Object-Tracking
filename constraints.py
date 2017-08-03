@@ -64,6 +64,22 @@ class Constraint(object):
         # print "rule: {}\t closeness: {}\t congruity: {}".format(self.rule_dict['closeness_rule'], value_dict['closeness'], congruity_calculator.output['congruity'])
         return congruity_calculator.output['congruity']
 
+    # def decide_rules(self, rule_dict, antecedent_dict):
+    #     rules = []
+
+    #     for rule in rule_dicts:
+    #         value, importance = rule_dict[rule]
+    #         antecedent = antecedent_dict[rule]
+
+    #         if importance == 5:
+    #             new_rule = ctrl.Rule(
+    #                 ~antecedent['good'],
+    #                 congruity['awful']
+    #             )
+    #         elif importance >= 3 and importance < 5:
+    #             new_Rule 
+
+
 
 
 class FollicleConstraint(Constraint):
@@ -77,6 +93,11 @@ class FollicleConstraint(Constraint):
 
         """
 
+        # rule_dict = {
+        #     length_rule : (50, 5),
+
+        # }
+
         super(FollicleConstraint, self).__init__()
 
         congruity = self.congruity
@@ -84,29 +105,57 @@ class FollicleConstraint(Constraint):
         length_rule, fol_rule, closeness_rule, overlap_rule = rule_dict['length_rule'], rule_dict['fol_rule'], rule_dict['closeness_rule'], rule_dict['overlap_rule']
 
 
-        closeness = ctrl.Antecedent(np.linspace(0, 10), 'closeness')
-        closeness['good'] = fuzz.trimf(closeness.universe, [closeness_rule - 7, closeness_rule, closeness_rule + 7])
+        closeness = ctrl.Antecedent(np.linspace(-1, 1), 'closeness')
+        closeness['good'] = fuzz.trimf(closeness.universe, [closeness_rule - 0.9, closeness_rule, closeness_rule + 0.9])
         # closeness['far'] = fuzz.trimf(closeness.universe, [3, 10, 10])
 
+
+        length_diff = ctrl.Antecedent(np.linspace(-600, 600), 'length_diff')
+        length_diff['good'] = fuzz.trimf(length_diff.universe, [length_rule - 200, length_rule, length_rule + 200])
 
 
         # Define rules that will place congruity into the 3 tiers
         # Is a good way of defining which constraints are more important
 
         rule1 = ctrl.Rule(
-            ~AREA_DIFF[fol_rule],
+            ~closeness['good'],
             congruity['awful']
         )
 
         rule2 = ctrl.Rule(
-            closeness['good'],
+            length_diff['good'],
             congruity['great']
         )
 
         rule3 = ctrl.Rule(
-            ~closeness['good'],
+            ~length_diff['good'],
             congruity['average']
         )
+
+        # rule2 = ctrl.Rule(
+        #     AREA_DIFF[fol_rule],
+        #     congruity['great']
+        # )
+
+        # rule3 = ctrl.Rule(
+        #     ~AREA_DIFF[fol_rule],
+        #     congruity['average']
+        # )
+
+        # rule1 = ctrl.Rule(
+        #     ~AREA_DIFF[fol_rule],
+        #     congruity['awful']
+        # )
+
+        # rule2 = ctrl.Rule(
+        #     closeness['good'],
+        #     congruity['great']
+        # )
+
+        # rule3 = ctrl.Rule(
+        #     ~closeness['good'],
+        #     congruity['average']
+        # )
 
         # rule1 = ctrl.Rule(
         #     ~closeness['good'],

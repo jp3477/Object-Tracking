@@ -26,6 +26,13 @@ OVERLAP = ctrl.Antecedent(np.arange(0, 600), 'overlap')
 OVERLAP['true'] = fuzz.trapmf(OVERLAP.universe, [0, 0, 5, 10])
 OVERLAP['false'] = fuzz.trapmf(OVERLAP.universe, [7, 12, 600, 600])
 
+CONGRUITY = ctrl.Consequent(np.linspace(0, 1), 'congruity')
+
+CONGRUITY['awful'] = fuzz.trimf(CONGRUITY.universe, [0, 0, 0.5])
+CONGRUITY['average'] = fuzz.trimf(CONGRUITY.universe, [0, 0.5, 1])
+CONGRUITY['great'] = fuzz.trimf(CONGRUITY.universe, [0.5, 1, 1])
+
+
 
 class Constraint(object):
     __metaclass__ = abc.ABCMeta
@@ -79,7 +86,23 @@ class Constraint(object):
     #         elif importance >= 3 and importance < 5:
     #             new_Rule 
 
+class GenericConstraint():
+    def __init__(self, rule_dict):
+        self.rule_dict = rule_dict
+        self.rules = None
+        self.congruity_control = None
 
+    def compute_congruity(self, value_dict):
+        congruity_control = self.congruity_control
+
+        congruity_calculator = ctrl.ControlSystemSimulation(congruity_control)
+        congruity_calculator.inputs(value_dict)
+        congruity_calculator.compute()
+        return congruity_calculator.output['congruity']
+
+    def set_rules(self, rules):
+        self.rules = rules
+        self.congruity_control = ctrl.ControlSystem(rules)
 
 
 class FollicleConstraint(Constraint):
@@ -131,46 +154,6 @@ class FollicleConstraint(Constraint):
             ~length_diff['good'],
             congruity['average']
         )
-
-        # rule2 = ctrl.Rule(
-        #     AREA_DIFF[fol_rule],
-        #     congruity['great']
-        # )
-
-        # rule3 = ctrl.Rule(
-        #     ~AREA_DIFF[fol_rule],
-        #     congruity['average']
-        # )
-
-        # rule1 = ctrl.Rule(
-        #     ~AREA_DIFF[fol_rule],
-        #     congruity['awful']
-        # )
-
-        # rule2 = ctrl.Rule(
-        #     closeness['good'],
-        #     congruity['great']
-        # )
-
-        # rule3 = ctrl.Rule(
-        #     ~closeness['good'],
-        #     congruity['average']
-        # )
-
-        # rule1 = ctrl.Rule(
-        #     ~closeness['good'],
-        #     congruity['awful']
-        # )
-
-        # rule2 = ctrl.Rule(
-        #     fol_diff[fol_rule],
-        #     congruity['great']
-        # )
-
-        # rule3 = ctrl.Rule(
-        #     ~fol_diff[fol_rule],
-        #     congruity['average']
-        # )
 
         self.congruity_control = ctrl.ControlSystem([rule1, rule2, rule3])
 

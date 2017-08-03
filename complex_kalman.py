@@ -37,7 +37,10 @@ H = np.array([
 ])
 
 
-tracker = KalmanTracker(P0, F, H, Q, R, show_predictions=True, max_object_count=12, max_strikes=50)
+tracker = KalmanTracker(P0, F, H, Q, R, 
+    show_predictions=True, max_object_count=12, max_strikes=50,
+    use_constraints=True
+)
 whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange', 'navy', 'turquoise', 'silver', 'yellowgreen']
 predictions = {}
 
@@ -105,7 +108,6 @@ for frame, whiskers in subset:
     plt.title('Frame: {}'.format(frame))
 
     preds = predictions[frame]
-
     for key in preds.keys():
         z = preds[key]
         color = whisker_colors[int(key)]

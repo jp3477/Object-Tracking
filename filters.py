@@ -3,14 +3,18 @@ from scipy.optimize import linear_sum_assignment
 from scipy import spatial
 from scipy import stats
 from filterpy.kalman import KalmanFilter, UnscentedKalmanFilter, MerweScaledSigmaPoints, unscented_transform, JulierSigmaPoints
-from constraints import AngleConstraint, FollicleConstraint
+from constraints import AngleConstraint, FollicleConstraint, GenericConstraint
 from intersect import closestDistanceBetweenLines
-
 import scipy.integrate as integrate
+
+from constraints import LENGTH_DIFF, AREA_DIFF, OVERLAP, CONGRUITY
+from skfuzzy import control as ctrl
+
 
 class KalmanTracker(object):
 
-    def __init__(self, P0, F, H, Q, R , max_object_count=8, max_strikes=20, show_predictions=False):
+    def __init__(self, P0, F, H, Q, R, max_object_count=8, max_strikes=20, show_predictions=False, 
+                use_constraints=True):
         """ Uses Kalman Filters and Fuzzy Logic to keep track of observed objects
 
             P0 : Intial prediction error
@@ -38,12 +42,121 @@ class KalmanTracker(object):
         self.P0, self.Q, self.R, self.F, self.H = P0, Q, R, F, H
         self.show_predictions = show_predictions
 
+        self.use_constraints = use_constraints
+
+
         #Keep track of step count
         self.k = 1
 
-
-
     def detect(self, observations):
+        if self.use_constraints:
+            return self.detectWithConstraints(observations)
+        else:
+            return self.detectWithoutConstraints(observations)
+
+    def detectWithoutConstraints(self, observations):
+        #Remove a predictor if it has had too many erroneous walks
+        # for i, strikes in enumerate(self.strikes):
+        #   if strikes > 5:
+        #     del self.strikes[i]
+        #     del self.predictors[i]
+        #     self.current_predictor_label -= 1
+
+        #update each prediction and form a cost matrix
+
+        current_predictors = self.predictors
+        cost_matrix = np.zeros((len(observations), len(self.predictors)))
+        #rows of cost matrix represent observations, columns represent predictions
+        for i, observation_dict in enumerate(observations):
+            for j, predictor in enumerate(self.predictors):
+                z = observation_dict['z']
+                x, P = predictor['predictor'].get_prediction()
+                prediction = np.dot(predictor['predictor'].H, x)
+                dist = np.linalg.norm(prediction - z)
+
+                # dist = np.linalg.norm(prediction - z)
+                # R = predictor['predictor'].R
+                # dist = spatial.distance.mahalanobis(prediction, z, np.linalg.inv(R))
+                cost = dist
+                cost_matrix[i, j] = cost
+
+        observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
+        exclusion_indices = []
+        predictor_exclusion_indices = []
+        preds = []
+        for i in range(len(observation_indices)):
+            observation_index = observation_indices[i]
+            prediction_index = prediction_indices[i]
+
+
+            observation_dict = observations[observation_index]
+            z = observation_dict['z']
+            x = observation_dict['x']
+            predictor = self.predictors[prediction_index]
+            if self.show_predictions:
+                prediction = np.dot(predictor['predictor'].H, x)
+                preds.append(prediction)
+
+
+
+            cost = cost_matrix[observation_index, prediction_index]
+            self.predictors[prediction_index]['predictor'].predict()
+            self.predictors[prediction_index]['predictor'].update(z)
+
+        # observation_indices = np.delete(observation_indices, exclusion_indices)
+        # prediction_indices = np.delete(prediction_indices, exclusion_indices)
+        # current_predictors = np.delete(current_predictors, predictor_exclusion_indices)
+
+
+
+
+            # preds.append(self.predictors[prediction_index]['predictor'].hx(self.predictors[i]['predictor'].x))
+
+        # if len(self.predictors) > len(observations):
+        #   mask = np.in1d(np.arange(len(self.predictors)), prediction_indices)
+
+        #   unused_indices = np.where(~mask)[0]
+
+        #   for i in unused_indices:
+        #     # self.predictors[i]['predictor'].Q = np.eye(5) * np.array([1, 10, 0.0001, 0.0001, 1]) * 5
+        #     # self.predictors[i]['predictor'].R = np.eye(5) * np.array([1, 10, 0.0001, 0.0001, 1]) * 100000000
+        #     self.predictors[i]['predictor'].predict(fx_args=self.predictors[i]['predictor'].fx_args)
+        #     best_observation_index = np.argmin(cost_matrix[:, i])
+        #     observation_dict = observations[best_observation_index]
+
+        #     z = observation_dict['z']
+        #     # self.predictors[i]['predictor'].update(z)
+
+
+        # Prepare to add new observation if number exceeds predictions
+        if len(observations) > len(prediction_indices):
+
+            mask = np.in1d(np.arange(len(observations)), observation_indices)
+            unused_indices = np.where(~mask)[0]
+            for i in unused_indices:  
+                observation_dict = observations[i]
+                x0 = observation_dict['x']
+                self.addPredictor(x0)
+                prediction_indices = np.append(prediction_indices, i)
+
+        #If cost of any assignment is too high, increment strikes...threshold is arbitrary 
+        for i, j in zip(observation_indices, prediction_indices):
+            cost = cost_matrix[i, j]
+
+            if cost > 50:
+                self.strikes[j] += 1
+            else:
+                self.strikes[j] = 0
+
+        # Return the label (numerical) of each assignment
+        labels = [self.predictors[i]['label'] for i in prediction_indices]
+
+        if self.show_predictions:
+            return labels, preds
+        else:
+            return labels
+
+    def detectWithConstraints(self, observations, rules=None):
         """ Match observations to existing predictors
 
             observations :  List of dictionaries with information about a detected observations
@@ -72,6 +185,7 @@ class KalmanTracker(object):
 
 
         #Match observations with trackers
+
         observation_indices, prediction_indices = [], []
         used_indices = []
         
@@ -123,7 +237,7 @@ class KalmanTracker(object):
 
                         # intersection = seg_intersect([x_obs_folx, x_obs_foly], [x_obs_tipx, x_obs_tipy], [x_other_folx, x_other_foly], [x_other_tipx, x_other_tipy])
                         # intersection_dist = np.linalg.norm(intersection - np.array([x_obs_folx, x_obs_foly]))
-                        # _, _, dist_between_segments = closestDistanceBetweenLines([x_obs_folx, x_obs_foly, 0], [x_obs_tipx, x_obs_tipy, 0], [x_other_folx, x_other_foly, 0], [x_other_tipx, x_other_tipy, 0], clampAll=True)
+                        _, _, dist_between_segments = closestDistanceBetweenLines([x1_folx, x1_foly, 0], [x1_tipx, x1_tipy, 0], [x2_folx, x2_foly, 0], [x2_tipx, x2_tipy, 0], clampAll=True)
 
                         area = area_between((x1_folx, x1_foly), (x1_tipx, x1_tipy), (x2_folx, x2_foly), (x2_tipx, x2_tipy))
                         closeness = x1[5] - x2[5]
@@ -132,19 +246,19 @@ class KalmanTracker(object):
                         length_diff = x1[4] - x2[4]
                         fol_diff = x1_foly - x2_foly
                         # abs_fol_diff = np.abs(fol_diff)
-            
-
+                        if constraints.rules == None:
+                            constraints.set_rules(self.get_default_rules({'overlap': constraints.rule_dict['overlap'], 'length_diff': constraints.rule_dict['length']}))
                         # Find congruity or how well the observation relationships match the expected constraints
                         congruity = constraints.compute_congruity(
                             {
                                 # 'area_diff': area,
-                                # 'overlap': dist_between_segments,
-                                'closeness': closeness,
+                                'overlap': dist_between_segments,
+                                # 'closeness': closeness,
                                 'length_diff': length_diff,
                                 # 'closeness': abs_fol_diff,
                             }
                         )
-                        # print "{}->{}\tcloseness_rule: {}\t closeness: {}\t length_rule: {}\t length_diff: {}\t congruity: {} ".format(j, prediction_index, constraints.rule_dict['closeness_rule'], closeness, constraints.rule_dict['length_rule'], length_diff, congruity)
+                        print "{}->{}\toverlap_rule: {}\t overlap: {}\t length_rule: {}\t length_diff: {}\t congruity: {} ".format(j, prediction_index, constraints.rule_dict['overlap'], dist_between_segments, constraints.rule_dict['length'], length_diff, congruity)
 
                         #Aggregate total likelihood based on congruity of this observation with other observations
                         likelihood *= congruity
@@ -291,7 +405,7 @@ class KalmanTracker(object):
                 tipx_predictor, tipy_predictor, folx_predictor, foly_predictor, pixlen_predictor = x2[0], x2[1], x2[2], x2[3], x2[4]
                 rank_predictor = x2[5]
 
-                # _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
+                _, _, dist_between_segments = closestDistanceBetweenLines([folx, foly, 0], [tipx, tipy, 0], [folx_predictor, foly_predictor, 0], [tipx_predictor, tipy_predictor, 0], clampAll=True)
                 area = area_between((folx, foly), (tipx, tipy), (folx_predictor, foly_predictor), (tipx_predictor, tipy_predictor))
                 closeness = rank - rank_predictor
                 length_diff = pixlen - pixlen_predictor
@@ -318,20 +432,19 @@ class KalmanTracker(object):
                     closeness_rule = 'far'
 
 
-                # if dist_between_segments < 5:
-                #     overlap_rule = 'true'
-                # else:
-                #     overlap_rule = 'false'
+                if dist_between_segments < 5:
+                    overlap_rule = 'true'
+                else:
+                    overlap_rule = 'false'
 
                 closeness_rule = closeness
-                pixlen_rule = length_diff
 
                 # Record rules that define the relationship between these two predictors
                 rules = {
-                    'length_rule': pixlen_rule,
-                    'fol_rule' : fol_rule, 
-                    'closeness_rule' : closeness_rule,
-                    'overlap_rule': overlap_rule
+                    'length': pixlen_rule,
+                    'fol' : fol_rule, 
+                    'closeness' : closeness_rule,
+                    'overlap': overlap_rule
                 }
                 # print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
                 print "{}->{} \t rules: {} \t segment_area: {}".format(j, i, rules, area) 
@@ -341,35 +454,55 @@ class KalmanTracker(object):
                 opp_rules = {}
 
                 if pixlen_rule == 'shorter':
-                    opp_rules['length_rule'] = 'longer'
+                    opp_rules['length'] = 'longer'
                 elif pixlen_rule == 'longer':
-                    opp_rules['length_rule'] = 'shorter'
+                    opp_rules['length'] = 'shorter'
 
 
                 if fol_rule == 'above':
-                    opp_rules['fol_rule'] = 'below'
+                    opp_rules['fol'] = 'below'
                 elif fol_rule == 'below':
-                    opp_rules['fol_rule'] = 'above'
+                    opp_rules['fol'] = 'above'
 
 
                 if closeness_rule == 'near':
-                    opp_rules['closeness_rule'] = 'far'
+                    opp_rules['closeness'] = 'far'
                 else:
-                    opp_rules['closeness_rule'] = 'near'
+                    opp_rules['closeness'] = 'near'
 
-                opp_rules['overlap_rule'] = overlap_rule
-                opp_rules['closeness_rule'] = closeness * -1
-                opp_rules['length_rule'] = length_diff * -1
+                opp_rules['overlap'] = overlap_rule
+                opp_rules['closeness'] = closeness * -1
 
                 prediction_index1 = prediction_indices[i]
                 prediction_index2 = prediction_indices[j]
 
                 # if j not in self.predictors[prediction_index1]['rules']:
-                self.predictors[prediction_index1]['rules'][j] = FollicleConstraint(rules)
+                self.predictors[prediction_index1]['rules'][j] = GenericConstraint(rules)
                 # if i not in self.predictors[prediction_index2]['rules']:
-                self.predictors[prediction_index2]['rules'][i] = FollicleConstraint(opp_rules)
+                self.predictors[prediction_index2]['rules'][i] = GenericConstraint(opp_rules)
 
                 j += 1
+
+    def get_default_rules(self, rule_dict): 
+        overlap = rule_dict['overlap']
+        length_diff = rule_dict['length_diff']
+
+        rule1 = ctrl.Rule(
+            antecedent= ~OVERLAP[overlap],
+            consequent= CONGRUITY['awful']
+        )
+
+        rule2 = ctrl.Rule(
+            antecedent= LENGTH_DIFF[length_diff],
+            consequent= CONGRUITY['great']
+        )
+
+        rule3 = ctrl.Rule(
+            antecedent= ~LENGTH_DIFF[length_diff],
+            consequent= CONGRUITY['awful']
+        )
+
+        return [rule1, rule2, rule3]
 
 
 

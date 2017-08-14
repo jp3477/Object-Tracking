@@ -3,18 +3,16 @@ from scipy.optimize import linear_sum_assignment
 from scipy import spatial
 from scipy import stats
 from filterpy.kalman import KalmanFilter, UnscentedKalmanFilter, MerweScaledSigmaPoints, unscented_transform, JulierSigmaPoints
-from constraints import AngleConstraint, FollicleConstraint, GenericConstraint
+from constraints import FollicleConstraint
 from intersect import closestDistanceBetweenLines
 import scipy.integrate as integrate
 
-from constraints import LENGTH_DIFF, AREA_DIFF, OVERLAP, CONGRUITY
-from skfuzzy import control as ctrl
 
 
 class KalmanTracker(object):
 
     def __init__(self, P0, F, H, Q, R, max_object_count=8, max_strikes=20, show_predictions=False, 
-                use_constraints=True):
+                use_constraints=True, constraints=[FollicleConstraint]):
         """ Uses Kalman Filters and Fuzzy Logic to keep track of observed objects
 
             P0 : Intial prediction error
@@ -44,13 +42,15 @@ class KalmanTracker(object):
 
         self.use_constraints = use_constraints
 
+        if use_constraints:
+            self.constraints = constraints
 
         #Keep track of step count
         self.k = 1
 
-    def detect(self, observations):
+    def detect(self, observations, constraint=None):
         if self.use_constraints:
-            return self.detectWithConstraints(observations)
+            return self.detectWithConstraints(observations, constraint=constraint)
         else:
             return self.detectWithoutConstraints(observations)
 
@@ -156,7 +156,7 @@ class KalmanTracker(object):
         else:
             return labels
 
-    def detectWithConstraints(self, observations, rules=None):
+    def detectWithConstraints(self, observations, constraint=None):
         """ Match observations to existing predictors
 
             observations :  List of dictionaries with information about a detected observations
@@ -223,7 +223,7 @@ class KalmanTracker(object):
                         matched_predictor = self.predictors[prediction_index]
 
                         # Contains rules between two predictors
-                        constraints = matched_predictor['rules'][j]
+                        constraints = matched_predictor['rules'][constraint][j]
 
                         # Define relationships between two observations
                         x1 = observations[observation_index]['x']
@@ -246,19 +246,14 @@ class KalmanTracker(object):
                         length_diff = x1[4] - x2[4]
                         fol_diff = x1_foly - x2_foly
                         # abs_fol_diff = np.abs(fol_diff)
-                        if constraints.rules == None:
-                            constraints.set_rules(self.get_default_rules({'overlap': constraints.rule_dict['overlap'], 'length_diff': constraints.rule_dict['length']}))
+
                         # Find congruity or how well the observation relationships match the expected constraints
                         congruity = constraints.compute_congruity(
                             {
-                                # 'area_diff': area,
-                                'overlap': dist_between_segments,
-                                # 'closeness': closeness,
+                                'area_diff': area,
                                 'length_diff': length_diff,
-                                # 'closeness': abs_fol_diff,
                             }
                         )
-                        print "{}->{}\toverlap_rule: {}\t overlap: {}\t length_rule: {}\t length_diff: {}\t congruity: {} ".format(j, prediction_index, constraints.rule_dict['overlap'], dist_between_segments, constraints.rule_dict['length'], length_diff, congruity)
 
                         #Aggregate total likelihood based on congruity of this observation with other observations
                         likelihood *= congruity
@@ -266,7 +261,8 @@ class KalmanTracker(object):
                     # Determine cost as some combination of cost and likelihood (might have to be tweaked)
 
                     # cost = 100 ** (-1 * np.log(likelihood) + 1) * dist
-                    cost = 5 ** (-1 * np.log(likelihood) + 1)
+                    #make relative scale as parameter
+                    cost = dist * 5 ** (-1 * np.log(likelihood) + 1)
                     # cost = -1 * np.log(likelihood) + 1
                     cost_list[j] = cost
                     dist_list[j] = dist
@@ -367,6 +363,10 @@ class KalmanTracker(object):
 
         rules = {}
 
+        #Add an empty dictionary for each possible constraint
+        if self.use_constraints:
+            rules = dict(zip(self.constraints.keys(), [{}] * len(self.constraints.keys())))
+
         new_index = len(self.predictors)
 
 
@@ -411,7 +411,7 @@ class KalmanTracker(object):
                 length_diff = pixlen - pixlen_predictor
 
                 pixlen_rule = ''
-                fol_rule = ''
+                area_rule = ''
                 closeness_rule = ''
                 overlap_rule = ''
 
@@ -421,9 +421,9 @@ class KalmanTracker(object):
                     pixlen_rule = 'longer'
 
                 if area <= 0:
-                    fol_rule = 'above'
+                    area_rule = 'above'
                 elif area > 0:
-                    fol_rule = 'below'
+                    area_rule = 'below'
 
 
                 if closeness <= 2 :
@@ -437,14 +437,13 @@ class KalmanTracker(object):
                 else:
                     overlap_rule = 'false'
 
-                closeness_rule = closeness
 
                 # Record rules that define the relationship between these two predictors
                 rules = {
-                    'length': pixlen_rule,
-                    'fol' : fol_rule, 
-                    'closeness' : closeness_rule,
-                    'overlap': overlap_rule
+                    'length_rule': pixlen_rule,
+                    'area_rule' : area_rule, 
+                    'closeness_rule' : closeness_rule,
+                    'overlap_rule': overlap_rule
                 }
                 # print "{}->{} \t rules: {} \t segment_dist: {}".format(j, i, rules, dist_between_segments) 
                 print "{}->{} \t rules: {} \t segment_area: {}".format(j, i, rules, area) 
@@ -454,56 +453,43 @@ class KalmanTracker(object):
                 opp_rules = {}
 
                 if pixlen_rule == 'shorter':
-                    opp_rules['length'] = 'longer'
+                    opp_rules['length_rule'] = 'longer'
                 elif pixlen_rule == 'longer':
-                    opp_rules['length'] = 'shorter'
+                    opp_rules['length_rule'] = 'shorter'
 
 
-                if fol_rule == 'above':
-                    opp_rules['fol'] = 'below'
-                elif fol_rule == 'below':
-                    opp_rules['fol'] = 'above'
+                if area_rule == 'above':
+                    opp_rules['area_rule'] = 'below'
+                elif area_rule == 'below':
+                    opp_rules['area_rule'] = 'above'
 
 
                 if closeness_rule == 'near':
-                    opp_rules['closeness'] = 'far'
+                    opp_rules['closeness_rule'] = 'far'
                 else:
-                    opp_rules['closeness'] = 'near'
+                    opp_rules['closeness_rule'] = 'near'
 
-                opp_rules['overlap'] = overlap_rule
-                opp_rules['closeness'] = closeness * -1
+                opp_rules['overlap_rule'] = overlap_rule
+                opp_rules['closeness_rule'] = closeness * -1
 
                 prediction_index1 = prediction_indices[i]
                 prediction_index2 = prediction_indices[j]
 
-                # if j not in self.predictors[prediction_index1]['rules']:
-                self.predictors[prediction_index1]['rules'][j] = GenericConstraint(rules)
-                # if i not in self.predictors[prediction_index2]['rules']:
-                self.predictors[prediction_index2]['rules'][i] = GenericConstraint(opp_rules)
+                for constraint in self.constraints:
+                    new_constraint = self.constraints[constraint]()
+                    new_constraint.set_rules(rules)
+                    self.predictors[prediction_index1]['rules'][constraint][j] = new_constraint
+
+                    new_opp_constraint = self.constraints[constraint]()
+                    new_opp_constraint.set_rules(opp_rules)
+                    self.predictors[prediction_index2]['rules'][constraint][i] = new_opp_constraint
+
+                # # if j not in self.predictors[prediction_index1]['rules']:
+                # self.predictors[prediction_index1]['rules'][j] = GenericConstraint(rules)
+                # # if i not in self.predictors[prediction_index2]['rules']:
+                # self.predictors[prediction_index2]['rules'][i] = GenericConstraint(opp_rules)
 
                 j += 1
-
-    def get_default_rules(self, rule_dict): 
-        overlap = rule_dict['overlap']
-        length_diff = rule_dict['length_diff']
-
-        rule1 = ctrl.Rule(
-            antecedent= ~OVERLAP[overlap],
-            consequent= CONGRUITY['awful']
-        )
-
-        rule2 = ctrl.Rule(
-            antecedent= LENGTH_DIFF[length_diff],
-            consequent= CONGRUITY['great']
-        )
-
-        rule3 = ctrl.Rule(
-            antecedent= ~LENGTH_DIFF[length_diff],
-            consequent= CONGRUITY['awful']
-        )
-
-        return [rule1, rule2, rule3]
-
 
 
 class DerivedUnscentedKalmanFilter(UnscentedKalmanFilter):

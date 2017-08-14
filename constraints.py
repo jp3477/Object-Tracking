@@ -7,7 +7,7 @@ import numpy as np
 import skfuzzy as fuzz
 from skfuzzy import control as ctrl
 
-#Define antecedents and consequents.
+#Define common antecedents and consequents.
 #For example check out http://pythonhosted.org/scikit-fuzzy/auto_examples/plot_tipping_problem_newapi.html
 
 LOWER_LENGTH_LIMIT, UPPER_LENGTH_LIMIT = -600, 600
@@ -71,39 +71,6 @@ class Constraint(object):
         # print "rule: {}\t closeness: {}\t congruity: {}".format(self.rule_dict['closeness_rule'], value_dict['closeness'], congruity_calculator.output['congruity'])
         return congruity_calculator.output['congruity']
 
-    # def decide_rules(self, rule_dict, antecedent_dict):
-    #     rules = []
-
-    #     for rule in rule_dicts:
-    #         value, importance = rule_dict[rule]
-    #         antecedent = antecedent_dict[rule]
-
-    #         if importance == 5:
-    #             new_rule = ctrl.Rule(
-    #                 ~antecedent['good'],
-    #                 congruity['awful']
-    #             )
-    #         elif importance >= 3 and importance < 5:
-    #             new_Rule 
-
-class GenericConstraint():
-    def __init__(self, rule_dict):
-        self.rule_dict = rule_dict
-        self.rules = None
-        self.congruity_control = None
-
-    def compute_congruity(self, value_dict):
-        congruity_control = self.congruity_control
-
-        congruity_calculator = ctrl.ControlSystemSimulation(congruity_control)
-        congruity_calculator.inputs(value_dict)
-        congruity_calculator.compute()
-        return congruity_calculator.output['congruity']
-
-    def set_rules(self, rules):
-        self.rules = rules
-        self.congruity_control = ctrl.ControlSystem(rules)
-
 
 class FollicleConstraint(Constraint):
     def __init__(self, rule_dict):
@@ -157,68 +124,70 @@ class FollicleConstraint(Constraint):
 
         self.congruity_control = ctrl.ControlSystem([rule1, rule2, rule3])
 
-class AngleConstraint(Constraint):
-    def __init__(self, rule_dict):
-        super(AngleConstraint, self).__init__()
+class LengthFocusedConstraint(Constraint):
+    def __init__(self):
+        """
+            Constraint with emphasis on length differences
 
-        lower_length_limit, upper_length_limit = -600, 600
-        lower_angle_limit, upper_angle_limit =  -4 * np.pi / 9, 4 * np.pi / 9
+        """
+        super(LengthFocusedConstraint, self).__init__()
 
-        length_diff = ctrl.Antecedent(np.arange(lower_length_limit, upper_length_limit, 1), 'length_diff')
-        angle_diff = ctrl.Antecedent(np.linspace(lower_angle_limit, upper_angle_limit), 'angle_diff')
-        # foly_diff = ctrl.Antecedent(np.arange(-150, 150), 'foly_diff')
 
-        congruity = self.congruity
-
-        # length_diff['shorter'] = fuzz.trimf(length_diff.universe, [-600, -600 , -20])
-        # length_diff['even'] = fuzz.trimf(length_diff.universe, [-20, 0, 20])
-        # length_diff['longer'] = fuzz.trimf(length_diff.universe, [20, 600, 600])
-
-        length_diff['shorter'] = fuzz.trapmf(length_diff.universe, [-600, -600, -40, -20])
-        length_diff['even'] = fuzz.trimf(length_diff.universe, [-20, 0, 20])
-        length_diff['longer'] = fuzz.trapmf(length_diff.universe, [20, 40, 600, 600])
-
-        # angle_diff['more retracted'] = fuzz.trimf(angle_diff.universe, [lower_angle_limit, lower_angle_limit, -np.pi/32])
-        # angle_diff['even'] = fuzz.trimf(angle_diff.universe, [-np.pi/32, 0, np.pi/32])
-        # angle_diff['more protracted'] = fuzz.trimf(angle_diff.universe, [np.pi/32, upper_angle_limit, upper_angle_limit])
-
-        angle_diff['more retracted'] = fuzz.trapmf(angle_diff.universe, [lower_angle_limit, lower_angle_limit, -np.pi/16, -np.pi/32])
-        angle_diff['even'] = fuzz.trimf(angle_diff.universe, [-np.pi/32, 0, np.pi/32])
-        angle_diff['more protracted'] = fuzz.trapmf(angle_diff.universe, [np.pi/32, np.pi/16, upper_angle_limit, upper_angle_limit])
+    def set_rules(self, rule_dict):
+        length_rule, area_rule = rule_dict['length_rule'], rule_dict['area_rule']
 
 
         rule1 = ctrl.Rule(
-            length_diff[rule_dict['length_rule']] &
-            angle_diff[rule_dict['angle_rule']],
-            congruity['great']
+            ~LENGTH_DIFF[length_rule],
+            CONGRUITY['awful'],
         )
 
-        # rule2 = ctrl.Rule(
-        #     length_diff[rule_dict['length_rule']] |
-        #     angle_diff[rule_dict['angle_rule']],
-        #     congruity['average']
-        # )
-
-        # rule3 = ctrl.Rule(
-        #     ~length_diff[rule_dict['length_rule']] &
-        #     ~angle_diff[rule_dict['angle_rule']],
-        #     congruity['awful']
-        # )
-
         rule2 = ctrl.Rule(
-            ~angle_diff[rule_dict['angle_rule']],
-            congruity['awful']
+            AREA_DIFF[area_rule],
+            CONGRUITY['great'],
         )
 
         rule3 = ctrl.Rule(
-            ~length_diff[rule_dict['length_rule']] &
-            angle_diff[rule_dict['angle_rule']],
-            congruity['awful']
+            ~AREA_DIFF[area_rule],
+            CONGRUITY['average'],
         )
 
-        self.congruity_control = ctrl.ControlSystem([rule1, rule2, rule3])
-        self.rule_dict = rule_dict
+        rules = [rule1, rule2, rule3]
+
+        self.rules = rules
+        self.congruity_control = ctrl.ControlSystem(rules)
+
+class HeightFocusedConstraint(Constraint):
+
+    def __init__(self):
+        """
+            Constraint with emphasis on height differences
+        """
+        super(HeightFocusedConstraint, self).__init__()
 
 
+    def set_rules(self, rule_dict):
+        length_rule, area_rule = rule_dict['length_rule'], rule_dict['area_rule']
+
+
+        rule1 = ctrl.Rule(
+            ~AREA_DIFF[area_rule],
+            CONGRUITY['awful'],
+        )
+
+        rule2 = ctrl.Rule(
+            LENGTH_DIFF[length_rule],
+            CONGRUITY['great'],
+        )
+
+        rule3 = ctrl.Rule(
+            ~LENGTH_DIFF[length_rule],
+            CONGRUITY['average'],
+        )
+
+        rules = [rule1, rule2, rule3]
+
+        self.rules = rules
+        self.congruity_control = ctrl.ControlSystem(rules)
 
 

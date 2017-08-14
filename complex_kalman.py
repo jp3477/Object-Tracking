@@ -7,18 +7,7 @@ import pdb
 from filters import UnscentedKalmanTracker, KalmanTracker
 import progressbar
 
-
-
-def arctan(y, x):
-    angle = np.arctan2(y, x)
-
-    if angle > 0:
-        angle += -np.pi / 2
-    if angle < 0:
-        angle += np.pi / 2
-
-    return angle
-
+from constraints import LengthFocusedConstraint, HeightFocusedConstraint
 
 
 
@@ -36,10 +25,15 @@ H = np.array([
     [ 0, 1, 0, 0, 0, 0],
 ])
 
+#Candidate constraints that will be focused on 
+focused_constraints = {
+    'height_focused' : HeightFocusedConstraint,
+    'length_focused': LengthFocusedConstraint,
+}
 
 tracker = KalmanTracker(P0, F, H, Q, R, 
     show_predictions=True, max_object_count=12, max_strikes=50,
-    use_constraints=True
+    use_constraints=True, constraints=focused_constraints
 )
 whisker_colors = ['k', 'b', 'g', 'r', 'c', 'm', 'y', 'pink', 'orange', 'navy', 'turquoise', 'silver', 'yellowgreen']
 predictions = {}
@@ -87,11 +81,16 @@ for frame, observations in bar(data_filtered):
         observation_dicts.append({
             "x" : x0,
             "z" : z,
-            "fx_args" : ()
         })
 
+    constraint = ''
+    if (observations['fol_y'] > 5).all():
+        constraint = 'length_focused'
+    else:
+        constraint = 'height_focused'
 
-    labels, preds = tracker.detect(observation_dicts)
+
+    labels, preds = tracker.detect(observation_dicts, constraint=constraint)
     predictions[frame] = dict([(labels[i], preds[i]) for i in range(len(preds))])
     data.loc[indices, 'color_group'] = labels
 

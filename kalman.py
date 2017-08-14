@@ -2,6 +2,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 
+
 class ExtendedKalmanThread(object):
 	"""
 	An implemention of the Kalman algorithm

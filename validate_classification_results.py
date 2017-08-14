@@ -1,4 +1,6 @@
 # Compare the curated results to jason's results
+#import matplotlib
+#matplotlib.use('Agg')
 import my
 import pandas
 import numpy as np
@@ -8,6 +10,7 @@ import argparse
 import whiskvid
 import tables
 import matplotlib.pyplot as plt
+
 
 ## Parse arguments
 parser = argparse.ArgumentParser(description="""
@@ -19,8 +22,11 @@ args = parser.parse_args()
 results_filename = args.results
 
 ## Load curated results
+# curated_filename = os.path.expanduser(
+#     '~/mnt/nas2_home/whisker/test_bed/161215_KM91/curated')
 curated_filename = os.path.expanduser(
-    '~/mnt/nas2_home/whisker/test_bed/161215_KM91/curated')
+    '/mnt/nas2/homes/chris/whisker/test_bed/161215_KM91/curated'
+    )
 curated_df = pandas.read_pickle(curated_filename)
 
 # Load names of whiskers
@@ -162,7 +168,7 @@ cwe_jdata = cwe_thisdata.drop('color_group', 1).rename(
 
 # Define the test set colors
 test_set_colors = []
-for test_idx in range(np.max(j_labels) + 1):
+for test_idx in range(int(np.max(j_labels)) + 1):
     if test_idx in j_labels:
         # This will fail if c_labels are not a simple list from 0 to N-1
         c_label = c_labels[list(j_labels).index(test_idx)]
